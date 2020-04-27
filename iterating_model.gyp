@@ -1,4 +1,4 @@
-# update from windows
+# update from mac
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %% [markdown]
@@ -664,19 +664,19 @@ def epoch_time(start_time, end_time):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # %%
 
-def read_wiki():
-    '''Reads from the folder fb-wiki the files from the Facebook LASER project.
-    threshold should be a number as string between 1000 and 1010 and folder must be created by hand right now'''
-    wiki_threshold_nds = pd.read_csv("data/fb-wiki/WikiMatrix.de-nds.txt.nds",
-                           sep="\n+",engine='python', encoding="utf-8",
-                           header=None, names=["nds"])
+# you can download this file from facebook-LASER WIKIMATRIX project on github
 
-    wiki_threshold_deu = pd.read_csv("data/fb-wiki/WikiMatrix.de-nds.txt.de",
-                           sep="\n+",engine='python', encoding="utf-8",
-                           header=None, names=["deu"])
-    return wiki_threshold_deu.join(wiki_threshold_nds)
-
-wiki_raw = read_wiki()
+wiki_complete = pd.read_csv("data/fb-wiki/WikiMatrix.de-nds.tsv.gz",sep="\t+"
+                            , engine="python", header= None
+                            ,encoding="utf-8", compression="gzip",
+                           names = ["threshold","deu","nds"])
+def wiki_selection(df, boundary):
+    '''returns a copy of wikipedia dataframe only containing values above boundary'''
+    df = df.copy()
+    df = df[(df.threshold < 1.2) & (df.threshold > boundary)]
+    return df[["deu","nds"]]
+# we use as boundary right now 1.07 because faults seem to increase highly below that
+wiki_raw = wiki_selection(wiki_complete, 1.07)
 column_names_platt = ["id", "language", "nds"]
 column_names_deu = ["id", "language", "deu"]
 nds_sentences = pd.read_csv("data/tatoabe/nds_sentences.tsv", sep= "\t", header = None, names=column_names_platt)
@@ -1071,73 +1071,72 @@ def display_attention(sentence, translation, attention, n_heads = 8, n_rows = 4,
 # First, we'll get an example from the training set.
 
 # %%
-# 'example_idx = 8
+example_idx = 8
 
-# src = vars(train_data.examples[example_idx])['src']
-# trg = vars(train_data.examples[example_idx])['trg']
+src = vars(train_data.examples[example_idx])['src']
+trg = vars(train_data.examples[example_idx])['trg']
 
-# print(f'src = {src}')
-# print(f'trg = {trg}')
+print(f'src = {src}')
+print(f'trg = {trg}')
 
 # # %% [markdown]
 # # Our translation looks pretty good, actually better than the original target sentence.
 
 # # %%
-# translation, attention = translate_sentence(src, SRC, TRG, model, device)
+translation, attention = translate_sentence(src, SRC, TRG, model, device)
 
-# print(f'predicted trg = {translation}')
+print(f'predicted trg = {translation}')
 
 # # %% [markdown]
 # # We can see the attention from each head below. Each is certainly different, but it's difficult (perhaps impossible) to reason about what head has actually learned to pay attention to. Some heads pay full attention to "eine" when translating "a", some don't at all, and some do a little. They all seem to follow the similar "downward staircase" pattern and the attention when outputting the last two tokens is equally spread over the final two tokens in the input sentence.
 
 # # %%
-# display_attention(src, translation, attention)
+display_attention(src, translation, attention)
 
 # # %% [markdown]
 # # Next, let's get an example the model has not been trained on from the validation set.
 
 # # %%
-# # example_idx = 8
+example_idx = 8
 
-# # src = vars(valid_data.examples[example_idx])['src']
-# # trg = vars(valid_data.examples[example_idx])['trg']
+src = vars(valid_data.examples[example_idx])['src']
+trg = vars(valid_data.examples[example_idx])['trg']
 
-# # print(f'src = {src}')
-# # print(f'trg = {trg}')
+print(f'src = {src}')
+print(f'trg = {trg}')
 
 # # %% [markdown]
 # # The model translates it one by one.
 
 # # %%
-# translation, attention = translate_sentence(src, SRC, TRG, model, device)
+translation, attention = translate_sentence(src, SRC, TRG, model, device)
 
-# print(f'predicted trg = {translation}')
+print(f'predicted trg = {translation}')
 
-# # %% [markdown]
-# # 
+
 
 # # %%
-# display_attention(src, translation, attention)
+display_attention(src, translation, attention)
 
 # # %% [markdown]
 # # Finally, we'll look at an example from the test data.
 
 # # %%
-# example_idx = 18
+example_idx = 18
 
-# src = vars(test_data.examples[example_idx])['src']
-# trg = vars(test_data.examples[example_idx])['trg']
+src = vars(test_data.examples[example_idx])['src']
+trg = vars(test_data.examples[example_idx])['trg']
 
-# print(f'src = {src}')
-# print(f'trg = {trg}')
+print(f'src = {src}')
+print(f'trg = {trg}')
 
 # # %% [markdown]
 # # The translation from test dataset is also correct.
 
 # # %%
-# translation, attention = translate_sentence(src, SRC, TRG, model, device)
+translation, attention = translate_sentence(src, SRC, TRG, model, device)
 
-# print(f'predicted trg = {translation}')
+print(f'predicted trg = {translation}')
 
 
 # # %%
@@ -1149,7 +1148,7 @@ def display_attention(sentence, translation, attention, n_heads = 8, n_rows = 4,
 # # Finally we calculate the BLEU score for the Transformer.
 
 # # %%
-# from torchtext.data.metrics import bleu_score
+from torchtext.data.metrics import bleu_score
 
 
 
@@ -1157,19 +1156,19 @@ def display_attention(sentence, translation, attention, n_heads = 8, n_rows = 4,
 # We get a BLEU score of 23.97, which beats the xxx of the convolutional sequence-to-sequence model and xxx of the attention based RNN model. All this whilst having the least amount of parameters and the fastest training time!
 
 # %%
-#bleu_score = calculate_bleu(test_data, SRC, TRG, model, device)
+bleu_score = calculate_bleu(test_data, SRC, TRG, model, device)
 
-#print(f'BLEU score = {bleu_score*100:.2f}')
+print(f'BLEU score = {bleu_score*100:.2f}')
 
 # %% [markdown]
 # In this section you can enter a custom sentence and look at the predicted translation.
 
 # %%
-#custom_sentence = "Jo, was geht denn, digga"
+custom_sentence = "Jo, was geht denn, digga"
 
-#translation, attention = translate_sentence(custom_sentence, SRC, TRG, model, device)
-#print("In German: ", custom_sentence)
-#print("In Low German: ", ' '.join(translation[:-1]))
+translation, attention = translate_sentence(custom_sentence, SRC, TRG, model, device)
+print("In German: ", custom_sentence)
+print("In Low German: ", ' '.join(translation[:-1]))
 
 
 # %%
