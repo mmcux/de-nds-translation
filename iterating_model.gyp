@@ -100,7 +100,7 @@ def load_train_test_data(path):
         sort_within_batch = True,
         sort_key = lambda x : len(x.src),
         device = device)
-    return SRC, TRG, train_iterator, valid_iterator, test_iterator
+    return SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data
 
 
 
@@ -542,27 +542,6 @@ def initialize_weights(m):
         nn.init.xavier_uniform_(m.weight.data)
 
 
-# %%
-def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
-    
-    trgs = []
-    
-    pred_trgs = []
-    
-    for datum in data:
-        
-        src = vars(datum)['src']
-        trg = vars(datum)['trg']
-    
-        pred_trg, _ = translate_sentence(src, src_field, trg_field, model, device, max_len)
-    
-        #cut off <eos> token
-        pred_trg = pred_trg[:-1]
-    
-        pred_trgs.append(pred_trg)
-        trgs.append([trg])
-        
-    return bleu_score(pred_trgs, trgs)
 # %% [markdown]
 # The optimizer used in the original Transformer paper uses Adam with a learning rate that has a "warm-up" and then a "cool-down" period. BERT and other Transformer models use Adam with a fixed learning rate, so we will implement that. Check [this](http://nlp.seas.harvard.edu/2018/04/03/attention.html#optimizer) link for more details about the original Transformer's learning rate schedule.
 # 
@@ -690,7 +669,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     model.eval()
         
     if isinstance(sentence, str):
-        nlp = spacy.load('de')
+        nlp = spacy.load('de_core_news_sm')
         tokens = [token.text.lower() for token in nlp(sentence)]
     else:
         tokens = [token.lower() for token in sentence]
@@ -908,8 +887,6 @@ round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_se
 # define error quantile until which the data should be kept for the next round 
 #quantile = 0.25
 
-bleu_score = 0
-
 
 residual_loss_before = float("Inf")
 
@@ -920,7 +897,7 @@ for i in range(20):
     print("===================================================")
     print("Round: ", i)
     path = "data/iterations/round_" + str(i) + "/"
-    SRC, TRG, train_iterator, valid_iterator, test_iterator = load_train_test_data(path)
+    SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path)
 
     enc , dec = instantiate_objects(SRC,TRG)
 
@@ -941,12 +918,7 @@ for i in range(20):
 
 
 
-
-Discard
-
-
-
-    N_EPOCHS = 5
+    N_EPOCHS = 2
 
     best_valid_loss = float('inf')
 
@@ -1020,17 +992,16 @@ Discard
 
 
     # calculating bleu score
+
     test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
-    print(test_bleu)
+    print("Test BLEU-Score: ",test_bleu)
     
     new_data_pairs = TabularDataset(path=new_path + "new_training_data.csv", format= "csv", skip_header = True
                                 , fields = [("src", SRC),("trg", TRG)])
 
-    new_data_iterator = BucketIterator(new_data_pairs, batch_size = 64, device = device
-                                   , shuffle = True , sort_within_batch=True )
 
-    new_data_bleu = calculate_bleu(new_data_iterator, SRC, TRG, model, device)
-    print(new_data_bleu)
+    new_data_bleu = calculate_bleu(new_data_pairs, SRC, TRG, model, device)
+    print("New Data BLEU-Score: ",new_data_bleu)
 
     # saving stats
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
