@@ -679,9 +679,9 @@ def read_wiki():
 wiki_raw = read_wiki()
 column_names_platt = ["id", "language", "nds"]
 column_names_deu = ["id", "language", "deu"]
-nds_sentences = pd.read_csv("data/nds_sentences.tsv", sep= "\t", header = None, names=column_names_platt)
-deu_sentences = pd.read_csv("data/deu_sentences.tsv", sep= "\t", header = None, names=column_names_deu)
-link_sentences = pd.read_csv("data/links.csv", sep= "\t", header = None, names=["origin","translation"])
+nds_sentences = pd.read_csv("data/tatoabe/nds_sentences.tsv", sep= "\t", header = None, names=column_names_platt)
+deu_sentences = pd.read_csv("data/tatoabe/deu_sentences.tsv", sep= "\t", header = None, names=column_names_deu)
+link_sentences = pd.read_csv("data/tatoabe/links.csv", sep= "\t", header = None, names=["origin","translation"])
 
 tatoabe_raw = link_sentences.merge(deu_sentences
                      , left_on = "origin"
@@ -739,14 +739,13 @@ tatoabe_df = get_range(tatoabe_raw, 1, 25)
 regex_all(wiki_df)
 regex_all(tatoabe_df)
 
+wiki_df = wiki_df.sample(10000)
+
 # %%
-#wiki_df.reset_index(np.arange(len(tatoabe_df + 1),len(wiki_df +1)))
-
-
-
-
-
-
+# making one continous index through the whole dataset
+tatoabe_df.reset_index(drop=True, inplace = True)
+index_range_wiki = np.arange(len(tatoabe_df),len(wiki_df) + len(tatoabe_df))
+wiki_df.set_index(index_range_wiki, inplace = True)
 
 
 
@@ -756,9 +755,9 @@ regex_all(tatoabe_df)
 # read train-test-split
 
 def read_train_test_split(path):
-    train_df = pd.read_csv(path + "train_data.csv")
-    valid_df = pd.read_csv(path + "valid_data.csv")
-    test_df = pd.read_csv(path + "test_data.csv")
+    train_df = pd.read_csv(path + "train_data.csv", index_col=0)
+    valid_df = pd.read_csv(path + "valid_data.csv", index_col=0)
+    test_df = pd.read_csv(path + "test_data.csv", index_col=0)
     train_valid = train_df.append(valid_df)
     dataset = train_valid.append(test_df)
     return dataset
@@ -777,9 +776,9 @@ def save_train_test_split(df, path):
     train_data, test_data = train_test_split(df, test_size=0.1, random_state=SEED)
     train_data, valid_data = train_test_split(train_data, test_size=0.1, random_state=SEED)
 
-    train_data.to_csv(path_or_buf= path + "train_data.csv", index=False)
-    valid_data.to_csv(path_or_buf= path + "valid_data.csv", index=False)
-    test_data.to_csv(path_or_buf= path + "test_data.csv", index=False)
+    train_data.to_csv(path_or_buf= path + "train_data.csv")
+    valid_data.to_csv(path_or_buf= path + "valid_data.csv")
+    test_data.to_csv(path_or_buf= path + "test_data.csv")
 
     print("Numbers of training samples: " , len(train_data))
     print("Number of validation samples: ",len(valid_data))
@@ -790,7 +789,7 @@ def save_train_test_split(df, path):
 save_train_test_split(tatoabe_df, path)
 
 def save_residual_data(df, path):
-    df.to_csv(path + "residuals.tsv", sep="\t" , index = False)
+    df.to_csv(path + "residuals.tsv", sep="\t")
 
 # our first residual data is our cleaned wikipedia dataset
 save_residual_data(wiki_df, path)
@@ -831,15 +830,18 @@ def evaluate_residual(model, iterator, criterion):
 
 
 # %%
+# creating dataframes for collecting results
+loss_summary = pd.DataFrame()
+
+round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
+                                       "residual_loss","residual_mins","residual_secs","quantile"])
+# %%
 
 # define error quantile until which the data should be kept for the next round 
-quantile = 0.25
+#quantile = 0.25
 
 bleu_score = 0
 
-results = pd.DataFrame(columns = ["round", "best_valid_loss", "test_loss", "resi_loss_quantile", "resi_loss_median"])
-
-residual_id = pd.DataFrame(np.zeros([len(wiki_raw),20]))
 
 residual_loss_before = float("Inf")
 
@@ -906,7 +908,7 @@ for i in range(20):
 
     print(f'| Test Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} |')
 
-    # for testing wikipedia pairings
+    # calculating the error for the data which was not included in the model & testing
     residual_pairs = TabularDataset(path=path + "residuals.tsv", format= "tsv", skip_header = True
                                 , fields = [("src", SRC),("trg", TRG)])
 
@@ -914,26 +916,40 @@ for i in range(20):
                                    , shuffle = False , sort_within_batch=False , repeat = False)
 
     start_time = time.time()
- 
+    
     residual_loss , residual_batch_loss = evaluate_residual(model, residual_iterator, criterion)
 
     end_time = time.time()
-    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+    residual_mins, residual_secs = epoch_time(start_time, end_time)
     print("Residual loss total: ",residual_loss)
-    print(f"Residual Evaluation Time: {epoch_mins}m {epoch_secs}s" )
-    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t")
+    print(f"Residual Evaluation Time: {residual_mins}m {residual_secs}s" )
+    # appending the error to our data and select only the best 25%
+    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t", index_col=0)
     residual_df.loc[:,"loss"] = residual_batch_loss
+
+    #storing the loss in the loss summary
+    loss_summary.loc[residual_df.index, "loss_round_" + str(i)] = residual_df.loss
+    loss_summary.to_csv("data/iterations/loss_summary.csv")
+
+    # calcualting the 25% quantile
     quantile = residual_df.loss.quantile(0.25)
     print("Quantile: ", quantile)
+
+    # appending the best 25% to our existing training dataset and split & save for next round
     new_train_data = residual_df[residual_df.loss <= quantile][["deu","nds"]]
     old_train_data = read_train_test_split(path)
     dataset = old_train_data.append(new_train_data)
     new_residual_data = residual_df[residual_df.loss > quantile][["deu","nds"]]
     new_path = "data/iterations/round_" + str(i + 1) + "/"
+    new_train_data.to_csv(new_path + "new_training_data.csv")
+    # shuffling for the next round is important, so the new dataset is integrated through the whole training process
     save_train_test_split(dataset, new_path)
     save_residual_data(new_residual_data ,new_path)
 
-
+    # saving stats
+    round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
+                    residual_mins,residual_secs,quantile]
+    round_stats.to_csv("data/iterations/round_stats.csv")
     
 
 
