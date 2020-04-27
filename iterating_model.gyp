@@ -13,6 +13,8 @@ import torch.optim as optim
 
 import torchtext
 from torchtext.data import Field, BucketIterator,  TabularDataset
+from torchtext.data.metrics import bleu_score
+
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -662,6 +664,72 @@ def epoch_time(start_time, end_time):
 
 # %%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
+    
+    trgs = []
+    pred_trgs = []
+    
+    for datum in data:
+        
+        src = vars(datum)['src']
+        trg = vars(datum)['trg']
+        
+        pred_trg, _ = translate_sentence(src, src_field, trg_field, model, device, max_len)
+        
+        #cut off <eos> token
+        pred_trg = pred_trg[:-1]
+        
+        pred_trgs.append(pred_trg)
+        trgs.append([trg])
+        
+    return bleu_score(pred_trgs, trgs)
+
+def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 50):
+    
+    model.eval()
+        
+    if isinstance(sentence, str):
+        nlp = spacy.load('de')
+        tokens = [token.text.lower() for token in nlp(sentence)]
+    else:
+        tokens = [token.lower() for token in sentence]
+
+    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
+        
+    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
+
+    src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
+    
+    src_mask = model.make_src_mask(src_tensor)
+    
+    with torch.no_grad():
+        enc_src = model.encoder(src_tensor, src_mask)
+
+    trg_indexes = [trg_field.vocab.stoi[trg_field.init_token]]
+
+    for i in range(max_len):
+
+        trg_tensor = torch.LongTensor(trg_indexes).unsqueeze(0).to(device)
+
+        trg_mask = model.make_trg_mask(trg_tensor)
+        
+        with torch.no_grad():
+            output, attention = model.decoder(trg_tensor, enc_src, trg_mask, src_mask)
+        
+        pred_token = output.argmax(2)[:,-1].item()
+        
+        trg_indexes.append(pred_token)
+
+        if pred_token == trg_field.vocab.stoi[trg_field.eos_token]:
+            break
+    
+    trg_tokens = [trg_field.vocab.itos[i] for i in trg_indexes]
+    
+    return trg_tokens[1:], attention
+
+
+
 # %%
 
 # you can download this file from facebook-LASER WIKIMATRIX project on github
@@ -739,7 +807,6 @@ tatoabe_df = get_range(tatoabe_raw, 1, 25)
 regex_all(wiki_df)
 regex_all(tatoabe_df)
 
-wiki_df = wiki_df.sample(10000)
 
 # %%
 # making one continous index through the whole dataset
@@ -834,7 +901,8 @@ def evaluate_residual(model, iterator, criterion):
 loss_summary = pd.DataFrame()
 
 round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
-                                       "residual_loss","residual_mins","residual_secs","quantile"])
+                                       "residual_loss","residual_mins","residual_secs","quantile",
+                                       "test_bleu", "new_data_bleu"])
 # %%
 
 # define error quantile until which the data should be kept for the next round 
@@ -874,11 +942,11 @@ for i in range(20):
 
 
 
+Discard
 
 
 
-
-    N_EPOCHS = 3
+    N_EPOCHS = 5
 
     best_valid_loss = float('inf')
 
@@ -949,27 +1017,28 @@ for i in range(20):
     new_train_data.to_csv(new_path + "new_training_data.csv")
 
 
+
+
+    # calculating bleu score
+    test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
+    print(test_bleu)
+    
+    new_data_pairs = TabularDataset(path=new_path + "new_training_data.csv", format= "csv", skip_header = True
+                                , fields = [("src", SRC),("trg", TRG)])
+
+    new_data_iterator = BucketIterator(new_data_pairs, batch_size = 64, device = device
+                                   , shuffle = True , sort_within_batch=True )
+
+    new_data_bleu = calculate_bleu(new_data_iterator, SRC, TRG, model, device)
+    print(new_data_bleu)
+
     # saving stats
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
-                    residual_mins,residual_secs,quantile]
+                    residual_mins,residual_secs,quantile, test_bleu, new_data_bleu]
     round_stats.to_csv("data/iterations/round_stats.csv")
-    
 
 
 
-
-
-# %%
-
-
-
-# %%
-
-
-# %%
-
-
-# %
 
 # %% [markdown]
 # ## Inference
@@ -995,48 +1064,7 @@ for i in range(20):
 # - return the output sentence (with the `<sos>` token removed) and the attention from the last layer
 
 # %%
-def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 50):
-    
-    model.eval()
-        
-    if isinstance(sentence, str):
-        nlp = spacy.load('de')
-        tokens = [token.text.lower() for token in nlp(sentence)]
-    else:
-        tokens = [token.lower() for token in sentence]
 
-    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
-        
-    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
-
-    src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
-    
-    src_mask = model.make_src_mask(src_tensor)
-    
-    with torch.no_grad():
-        enc_src = model.encoder(src_tensor, src_mask)
-
-    trg_indexes = [trg_field.vocab.stoi[trg_field.init_token]]
-
-    for i in range(max_len):
-
-        trg_tensor = torch.LongTensor(trg_indexes).unsqueeze(0).to(device)
-
-        trg_mask = model.make_trg_mask(trg_tensor)
-        
-        with torch.no_grad():
-            output, attention = model.decoder(trg_tensor, enc_src, trg_mask, src_mask)
-        
-        pred_token = output.argmax(2)[:,-1].item()
-        
-        trg_indexes.append(pred_token)
-
-        if pred_token == trg_field.vocab.stoi[trg_field.eos_token]:
-            break
-    
-    trg_tokens = [trg_field.vocab.itos[i] for i in trg_indexes]
-    
-    return trg_tokens[1:], attention
 
 # %% [markdown]
 # We'll now define a function that displays the attention over the source sentence for each step of the decoding. As this model has 8 heads our model we can view the attention for each of the heads.
@@ -1140,15 +1168,8 @@ print(f'predicted trg = {translation}')
 
 
 # # %%
-# display_attention(src, translation, attention)
-# '
-# # %% [markdown]
-# # ## BLEU
-# # 
-# # Finally we calculate the BLEU score for the Transformer.
+display_attention(src, translation, attention)
 
-# # %%
-from torchtext.data.metrics import bleu_score
 
 
 
