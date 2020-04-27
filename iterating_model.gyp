@@ -942,10 +942,12 @@ for i in range(20):
     dataset = old_train_data.append(new_train_data)
     new_residual_data = residual_df[residual_df.loss > quantile][["deu","nds"]]
     new_path = "data/iterations/round_" + str(i + 1) + "/"
-    new_train_data.to_csv(new_path + "new_training_data.csv")
+
     # shuffling for the next round is important, so the new dataset is integrated through the whole training process
     save_train_test_split(dataset, new_path)
     save_residual_data(new_residual_data ,new_path)
+    new_train_data.to_csv(new_path + "new_training_data.csv")
+
 
     # saving stats
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
