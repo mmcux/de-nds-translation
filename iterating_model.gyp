@@ -1,4 +1,4 @@
-# windows
+# update from windows
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %% [markdown]
@@ -43,7 +43,7 @@ torch.backends.cudnn.deterministic = True
 # We'll then create our tokenizers as before.
 
 # %%
-spacy_de = spacy.load('de')
+spacy_de = spacy.load('de_core_news_sm')
 
 
 # %%
@@ -695,8 +695,8 @@ tatoabe_raw = tatoabe_raw.drop(tatoabe_raw[tatoabe_raw["nds"].str.contains('\(fr
 
 def get_length(df):
     df_output = df.copy()
-    df_output.nds = df_output.nds.str.split(r"[\s.,;:?!-\"\']*")
-    df_output.deu = df_output.deu.str.split(r"[\s.,;:?!-\"\']*")
+    df_output.nds = df_output.nds.str.split(r"[\s.,;:?!-\"\']+")
+    df_output.deu = df_output.deu.str.split(r"[\s.,;:?!-\"\']+")
     return df_output.applymap(len)
 
 def get_range(df, start, end):
@@ -928,7 +928,8 @@ for i in range(20):
     residual_df.loc[:,"loss"] = residual_batch_loss
 
     #storing the loss in the loss summary
-    loss_summary.loc[residual_df.index, "loss_round_" + str(i)] = residual_df.loss
+
+    loss_summary.loc[:, "loss_round_" + str(i)] = residual_df.loss
     loss_summary.to_csv("data/iterations/loss_summary.csv")
 
     # calcualting the 25% quantile
