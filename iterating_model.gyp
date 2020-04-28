@@ -87,7 +87,7 @@ def load_train_test_data(path):
     train_data, valid_data, test_data = TabularDataset.splits(
         path= path, train='train_data.csv',
         validation='valid_data.csv', test='test_data.csv', format='csv', skip_header=True,
-        fields=[('src', SRC), ('trg', TRG)])
+        fields=[('id', None),('src', SRC), ('trg', TRG)])
 
     SRC.build_vocab(train_data, min_freq = 1)
     TRG.build_vocab(train_data, min_freq = 1)
@@ -674,6 +674,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     else:
         tokens = [token.lower() for token in sentence]
 
+
     tokens = [src_field.init_token] + tokens + [src_field.eos_token]
         
     src_indexes = [src_field.vocab.stoi[token] for token in tokens]
@@ -756,12 +757,12 @@ def get_range(df, start, end):
 # replace "ik" with "ick"
 def replace_ik(df):    
     print("Replacements of 'ick' to 'ik': ",df.nds.str.count(r"(I|i)ck").sum())
-    df.nds = df.nds.str.replace("(I|i)ck", "\1k")
+    df.nds = df.nds.str.replace(r"(I|i)ck", r"\1k")
 
 # replace us with uns
 def replace_uns(df):
     print("Replacements of 'us' to 'uns'", df.nds.str.count("\s(U|u)s\s").sum())
-    df.nds = df.nds.str.replace("\s(U|u)s\s", "\1ns")
+    df.nds = df.nds.str.replace(r"\s(U|u)s\s", r"\1ns")
 
 # "sch" before a consonant will be replaced with s 
 def replace_s(df):
@@ -797,7 +798,11 @@ wiki_df.set_index(index_range_wiki, inplace = True)
 
 
 #%%
+wiki_df.head(10)
+tatoabe_df.head(10)
 
+
+#%%
 # read train-test-split
 
 def read_train_test_split(path):
@@ -886,18 +891,24 @@ round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_se
 
 # define error quantile until which the data should be kept for the next round 
 #quantile = 0.25
-
+include_bleu = False
 
 residual_loss_before = float("Inf")
 
 # %%
 
-for i in range(20):
+for i in range(6):
 
     print("===================================================")
     print("Round: ", i)
     path = "data/iterations/round_" + str(i) + "/"
     SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path)
+    debug_text_test_src = vars(test_data.examples[8])['src']
+    debug_text_test_trg = vars(test_data.examples[8])['trg']
+
+
+    print("Debug Test Text Source: ", debug_text_test_src)
+    print("Debug Test Text Target: ", debug_text_test_trg)
 
     enc , dec = instantiate_objects(SRC,TRG)
 
@@ -918,7 +929,7 @@ for i in range(20):
 
 
 
-    N_EPOCHS = 2
+    N_EPOCHS = 5
 
     best_valid_loss = float('inf')
 
@@ -942,6 +953,7 @@ for i in range(20):
         print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
 
 
+
     model.load_state_dict(torch.load(path + 'model.pt'))
 
     test_loss = evaluate(model, test_iterator, criterion)
@@ -950,7 +962,12 @@ for i in range(20):
 
     # calculating the error for the data which was not included in the model & testing
     residual_pairs = TabularDataset(path=path + "residuals.tsv", format= "tsv", skip_header = True
-                                , fields = [("src", SRC),("trg", TRG)])
+                                , fields = [('id', None),("src", SRC),("trg", TRG)])
+    debug_text_residual_src = vars(residual_pairs.examples[8])['src']
+    debug_text_residual_trg = vars(residual_pairs.examples[8])['trg']
+    print("Debug Residual Text Source: ", debug_text_residual_src)
+    print("Debug Residual Text Target: ", debug_text_residual_trg)
+
 
     residual_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
                                    , shuffle = False , sort_within_batch=False , repeat = False)
@@ -992,16 +1009,22 @@ for i in range(20):
 
 
     # calculating bleu score
+    if include_bleu == True:
+        test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
+        print("Test BLEU-Score: ",test_bleu)
+        
+        new_data_pairs = TabularDataset(path=new_path + "new_training_data.csv", format= "csv", skip_header = True
+                                    , fields = [('id', None),("src", SRC),("trg", TRG)])
 
-    test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
-    print("Test BLEU-Score: ",test_bleu)
-    
-    new_data_pairs = TabularDataset(path=new_path + "new_training_data.csv", format= "csv", skip_header = True
-                                , fields = [("src", SRC),("trg", TRG)])
+        debug_text_nd = vars(new_data_pairs.examples[8])['trg']
+        
+        print("Debug New Data Text: ", debug_text_nd)
 
-
-    new_data_bleu = calculate_bleu(new_data_pairs, SRC, TRG, model, device)
-    print("New Data BLEU-Score: ",new_data_bleu)
+        new_data_bleu = calculate_bleu(new_data_pairs, SRC, TRG, model, device)
+        print("New Data BLEU-Score: ",new_data_bleu)
+    else:
+        test_bleu = np.NaN
+        new_data_bleu = np.NaN
 
     # saving stats
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
@@ -1120,8 +1143,8 @@ display_attention(src, translation, attention)
 # # %% [markdown]
 # # Finally, we'll look at an example from the test data.
 
-# # %%
-example_idx = 18
+# %%
+example_idx = 1028
 
 src = vars(test_data.examples[example_idx])['src']
 trg = vars(test_data.examples[example_idx])['trg']
@@ -1156,7 +1179,7 @@ print(f'BLEU score = {bleu_score*100:.2f}')
 # In this section you can enter a custom sentence and look at the predicted translation.
 
 # %%
-custom_sentence = "Jo, was geht denn, digga"
+custom_sentence = "Der Lehrer beendet die Stunde."
 
 translation, attention = translate_sentence(custom_sentence, SRC, TRG, model, device)
 print("In German: ", custom_sentence)
