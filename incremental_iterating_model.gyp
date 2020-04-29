@@ -866,9 +866,12 @@ def replace_s(df):
 # the wikipedia dataset uses points to identify sentences, but shortens therefore when enumeration is used.
 # these half sentences mostly doesn't make sense, so they will be dropped.
 def delete_wrong_enumeration(df):
-    pass
-    # future work
-    #return df[df.deu.str.endswith(r"[0-9]+.")]
+    
+    len_before = len(df)
+    drop_index = df[df.nds.str.contains("\d\.") | df.deu.str.contains("\d\.")].index
+    df.drop(index=drop_index, inplace = True)
+    print("Deleted wrong enumerations: ", len_before - len(df))
+    
 def regex_all(df):
     replace_ik(df)
     replace_uns(df)
@@ -880,6 +883,11 @@ tatoabe_df = get_range(tatoabe_raw, 1, 25)
 
 regex_all(wiki_df)
 regex_all(tatoabe_df)
+
+
+
+
+delete_wrong_enumeration(wiki_df)
 
 
 # %%
