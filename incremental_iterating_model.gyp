@@ -871,7 +871,7 @@ def delete_wrong_enumeration(df):
     drop_index = df[df.nds.str.contains("\d\.") | df.deu.str.contains("\d\.")].index
     df.drop(index=drop_index, inplace = True)
     print("Deleted wrong enumerations: ", len_before - len(df))
-    
+
 def regex_all(df):
     replace_ik(df)
     replace_uns(df)
@@ -883,9 +883,6 @@ tatoabe_df = get_range(tatoabe_raw, 1, 25)
 
 regex_all(wiki_df)
 regex_all(tatoabe_df)
-
-
-
 
 delete_wrong_enumeration(wiki_df)
 
@@ -925,7 +922,7 @@ loss_summary = pd.DataFrame(np.zeros([len(wiki_df),runs]), index = wiki_df.index
 
 round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
                                        "residual_loss","residual_mins","residual_secs","quantile",
-                                       "test_bleu"])
+                                       "test_bleu", "total_samples"])
 # %%
 
 # define error quantile until which the data should be kept for the next round 
@@ -944,7 +941,10 @@ for i in range(runs):
     print("===================================================")
     print("Round: ", i)
     path_iter = path_round + str(i) + "/"
+    # load the iterators which contains already the batches
     SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path_iter)
+    # count how many samples we have int total
+    total_samples = (len(train_iterator) + len(valid_iterator) + len(test_iterator))*64
     debug_text_test_src = vars(test_data.examples[8])['src']
     debug_text_test_trg = vars(test_data.examples[8])['trg']
 
@@ -971,7 +971,7 @@ for i in range(runs):
 
 
 
-    N_EPOCHS = 5 + i
+    N_EPOCHS = 5 + int(i/2)
 
     best_valid_loss = float('inf')
 
@@ -1012,7 +1012,7 @@ for i in range(runs):
     
     start_index = wiki_df.index[0]
     # if the calculated size exceeds the wiki_df, we take the full remaining dataframe
-    if wiki_df.index[-1] - len(tatoabe_df) < residual_size:
+    if wiki_df.index[-1] - len(tatoabe_df) > residual_size:
       end_index = wiki_df.index[residual_size]
     else:
       end_index = wiki_df.index[-1]
@@ -1083,7 +1083,7 @@ for i in range(runs):
 
     # saving stats
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
-                    residual_mins,residual_secs,quantile, test_bleu]
+                    residual_mins,residual_secs,quantile, test_bleu, total_samples]
     round_stats.to_csv(path + "round_stats.csv")
 
 
