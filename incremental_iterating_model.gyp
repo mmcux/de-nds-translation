@@ -873,6 +873,8 @@ def regex_all(df):
     replace_ik(df)
     replace_uns(df)
     replace_s(df)
+
+# %%
 wiki_df = get_range(wiki_raw, 1, 25)
 tatoabe_df = get_range(tatoabe_raw, 1, 25)
 
@@ -907,9 +909,6 @@ path_round = path + "round_"
 save_train_test_split(tatoabe_df, path_round + str(0) + "/")
 
 
-# our first residual data is the first small subset of the "best" ranked cleaned wikipedia pairs
-
-save_residual_data(wiki_df, path_round + str(0) + "/")
 
 # %%
 # creating dataframes for collecting results
@@ -927,7 +926,10 @@ include_bleu = True
 
 residual_loss_before = float("Inf")
 
+wiki_df.index[500]
+
 # %%
+
 
 for i in range(runs):
 
@@ -961,7 +963,7 @@ for i in range(runs):
 
 
 
-    N_EPOCHS = 1
+    N_EPOCHS = 5 + i
 
     best_valid_loss = float('inf')
 
@@ -999,10 +1001,15 @@ for i in range(runs):
     # our model should get better and can predict better for larger datasets, which sentences are good
     # we start with 500 and increase 
     residual_size =  500 * 2**(i)
+    
     start_index = wiki_df.index[0]
-    end_index = wiki_df.index[residual_size]
-    residuals = wiki_df[start_index:end_index]
-    residuals.to_csv(path_round + "residuals.tsv", sep="\t")
+    # if the calculated size exceeds the wiki_df, we take the full remaining dataframe
+    if wiki_df.index[-1] - len(tatoabe_df) < residual_size:
+      end_index = wiki_df.index[residual_size]
+    else:
+      end_index = wiki_df.index[-1]
+    residual_df = wiki_df.loc[start_index:end_index,:].copy()
+    residual_df.to_csv(path_iter + "residuals.tsv", sep="\t")
 
     # calculating the error for the data which was not included in the model & testing
     residual_pairs = TabularDataset(path=path_iter + "residuals.tsv", format= "tsv", skip_header = True
@@ -1025,7 +1032,7 @@ for i in range(runs):
     print("Residual loss total: ",residual_loss)
     print(f"Residual Evaluation Time: {residual_mins}m {residual_secs}s" )
     # appending the error to our data and select only the best 25%
-    residual_df = pd.read_csv(path_iter + "residuals.tsv", sep="\t", index_col=0)
+    #residual_df = pd.read_csv(path_iter + "residuals.tsv", sep="\t", index_col=0)
     residual_df.loc[:,"loss"] = residual_batch_loss
 
     #storing the loss in the loss summary at the right sentence index
@@ -1045,6 +1052,7 @@ for i in range(runs):
     new_path = path_round + str(i + 1) + "/"
 
     # shuffling for the next round is important, so the new dataset is integrated through the whole training process
+    # it is done inside the below function before saving it
     save_train_test_split(dataset, new_path)
 
     # save the new train-data for easy quality check
@@ -1069,6 +1077,10 @@ for i in range(runs):
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
                     residual_mins,residual_secs,quantile, test_bleu]
     round_stats.to_csv(path + "round_stats.csv")
+
+
+
+
 
 
 
