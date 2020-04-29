@@ -781,6 +781,8 @@ def regex_all(df):
     replace_ik(df)
     replace_uns(df)
     replace_s(df)
+
+    # %%
 wiki_df = get_range(wiki_raw, 1, 25)
 tatoabe_df = get_range(tatoabe_raw, 1, 25)
 
@@ -794,12 +796,14 @@ tatoabe_df.reset_index(drop=True, inplace = True)
 index_range_wiki = np.arange(len(tatoabe_df),len(wiki_df) + len(tatoabe_df))
 wiki_df.set_index(index_range_wiki, inplace = True)
 
+# ------------------------------------------------------------------------------------------------------------------------------
+# %%
 
 
 
-#%%
-wiki_df.head(10)
-tatoabe_df.head(10)
+
+
+
 
 
 #%%
@@ -814,7 +818,6 @@ def read_train_test_split(path):
     return dataset
 
 
-path = "data/iterations/round_0/"
 
 # saving the first train_test_split
 def save_train_test_split(df, path):
@@ -836,72 +839,57 @@ def save_train_test_split(df, path):
     print("Number of test samples: ",len(test_data))
 
 
-# the first round is completed with the tatoabe dataset
-save_train_test_split(tatoabe_df, path)
 
-def save_residual_data(df, path):
-    df.to_csv(path + "residuals.tsv", sep="\t")
 
-# our first residual data is our cleaned wikipedia dataset
-save_residual_data(wiki_df, path)
-
-# calculate residual_loss
-def evaluate_residual(model, iterator, criterion):
-    
-    model.eval()
-    
-    epoch_loss = 0
-    batch_loss = np.zeros(len(iterator))
-    
-    with torch.no_grad():
-    
-        for i, batch in enumerate(iterator):
-            src = batch.src
-            trg = batch.trg
-            output, _ = model(src, trg[:,: - 1])
-            
-            #output = [batch size, trg len - 1, output dim]
-            #trg = [batch size, trg len]
-            
-            output_dim = output.shape[-1]
-            
-            output = output.contiguous().view(-1, output_dim)
-            trg = trg[:,1:].contiguous().view(-1)
-            
-            #output = [batch size * trg len - 1, output dim]
-            #trg = [batch size * trg len - 1]
-            
-            loss = criterion(output, trg)
-            batch_loss[i] = loss.item()
-            epoch_loss += loss.item()
-            
-
-        
-    return epoch_loss / len(iterator), batch_loss
 
 
 # %%
 # creating dataframes for collecting results
-loss_summary = pd.DataFrame()
 
 round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
-                                       "residual_loss","residual_mins","residual_secs","quantile",
-                                       "test_bleu", "new_data_bleu"])
+                                       "test_bleu"])
 # %%
 
-# define error quantile until which the data should be kept for the next round 
-#quantile = 0.25
-include_bleu = False
 
-residual_loss_before = float("Inf")
+include_bleu = True
+
 
 # %%
+# from here the training will be different.
+# we will sample from the wikipedia dataset, so it has the same training size as the iterative model
 
-for i in range(6):
+
+def get_wiki_sample(df, round_number,random_nr = 42):
+    sample_nr = sum(loss_summary.iloc[:,round_number].isna())
+    samples = df.sample(sample_nr)
+    return samples
+
+# here must the path included to the loss summary of comparison model to get the sample size of the round
+loss_summary = pd.read_csv("data/iterations/loss_summary.csv", index_col=0)
+# %%
+# saving stats
+round_stats = pd.read_csv("data/baseline/round_stats.csv")
+
+
+max_round_numbers = 6
+for round_number in range(max_round_numbers):
+    wiki_df = get_wiki_sample(wiki_df,round_number)
+
+    # and we have to merge it to the tatoabe dataset
+
+    baseline_df = tatoabe_df.append(wiki_df)
+
+
+    # and we need of course a new path
+
+    path = "data/baseline/round_" + str(round_number) + "/"
+
+    # the first and only round is complete with the baseline dataset
+    save_train_test_split(baseline_df, path)
+
 
     print("===================================================")
-    print("Round: ", i)
-    path = "data/iterations/round_" + str(i) + "/"
+
     SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path)
     debug_text_test_src = vars(test_data.examples[8])['src']
     debug_text_test_trg = vars(test_data.examples[8])['trg']
@@ -961,76 +949,20 @@ for i in range(6):
 
     print(f'| Test Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} |')
 
-    # calculating the error for the data which was not included in the model & testing
-    residual_pairs = TabularDataset(path=path + "residuals.tsv", format= "tsv", skip_header = True
-                                , fields = [('id', None),("src", SRC),("trg", TRG)])
-    debug_text_residual_src = vars(residual_pairs.examples[8])['src']
-    debug_text_residual_trg = vars(residual_pairs.examples[8])['trg']
-    print("Debug Residual Text Source: ", debug_text_residual_src)
-    print("Debug Residual Text Target: ", debug_text_residual_trg)
-
-
-    residual_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
-                                   , shuffle = False , sort_within_batch=False , repeat = False)
-
-    start_time = time.time()
-    
-    residual_loss , residual_batch_loss = evaluate_residual(model, residual_iterator, criterion)
-
-    end_time = time.time()
-    residual_mins, residual_secs = epoch_time(start_time, end_time)
-    print("Residual loss total: ",residual_loss)
-    print(f"Residual Evaluation Time: {residual_mins}m {residual_secs}s" )
-    # appending the error to our data and select only the best 25%
-    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t", index_col=0)
-    residual_df.loc[:,"loss"] = residual_batch_loss
-
-    #storing the loss in the loss summary
-
-    loss_summary.loc[:, "loss_round_" + str(i)] = residual_df.loss
-    loss_summary.to_csv("data/iterations/loss_summary.csv")
-
-    # calcualting the 25% quantile
-    quantile = residual_df.loss.quantile(0.25)
-    print("Quantile: ", quantile)
-
-    # appending the best 25% to our existing training dataset and split & save for next round
-    new_train_data = residual_df[residual_df.loss <= quantile][["deu","nds"]]
-    old_train_data = read_train_test_split(path)
-    dataset = old_train_data.append(new_train_data)
-    new_residual_data = residual_df[residual_df.loss > quantile][["deu","nds"]]
-    new_path = "data/iterations/round_" + str(i + 1) + "/"
-
-    # shuffling for the next round is important, so the new dataset is integrated through the whole training process
-    save_train_test_split(dataset, new_path)
-    save_residual_data(new_residual_data ,new_path)
-    new_train_data.to_csv(new_path + "new_training_data.csv")
-
-
-
 
     # calculating bleu score
     if include_bleu == True:
         test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
         print("Test BLEU-Score: ",test_bleu)
         
-        new_data_pairs = TabularDataset(path=new_path + "new_training_data.csv", format= "csv", skip_header = True
-                                    , fields = [('id', None),("src", SRC),("trg", TRG)])
 
-        debug_text_nd = vars(new_data_pairs.examples[8])['trg']
-        
-        print("Debug New Data Text: ", debug_text_nd)
-
-        new_data_bleu = calculate_bleu(new_data_pairs, SRC, TRG, model, device)
-        print("New Data BLEU-Score: ",new_data_bleu)
     else:
         test_bleu = np.NaN
-        new_data_bleu = np.NaN
 
-    # saving stats
-    round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
-                    residual_mins,residual_secs,quantile, test_bleu, new_data_bleu]
-    round_stats.to_csv("data/iterations/round_stats.csv")
+    #round_stats.loc[:,"rounds"] = round_number
+    round_stats.loc[round_number, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,
+                    test_bleu, round_number]
+    round_stats.to_csv("data/baseline/round_stats_iteration.csv")
 
 
 
@@ -1116,17 +1048,6 @@ print(f'predicted trg = {translation}')
 # # %%
 display_attention(src, translation, attention)
 
-# # %% [markdown]
-# # Next, let's get an example the model has not been trained on from the validation set.
-
-# # %%
-example_idx = 8
-
-src = vars(valid_data.examples[example_idx])['src']
-trg = vars(valid_data.examples[example_idx])['trg']
-
-print(f'src = {src}')
-print(f'trg = {trg}')
 
 # # %% [markdown]
 # # The model translates it one by one.

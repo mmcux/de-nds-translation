@@ -63,7 +63,7 @@ def load_train_test_data(path):
     train_data, valid_data, test_data = TabularDataset.splits(
         path= path, train='train_data.csv',
         validation='valid_data.csv', test='test_data.csv', format='csv', skip_header=True,
-        fields=[('src', SRC), ('trg', TRG)])
+        fields=[('id', None),('src', SRC), ('trg', TRG)])
 
     SRC.build_vocab(train_data, min_freq = 1)
     TRG.build_vocab(train_data, min_freq = 1)
@@ -530,7 +530,7 @@ def instantiate_objects(SRC,TRG):
     return enc, dec
 # %%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-path = "data/iterations/round_3/"
+path = "data/iterations/round_1/"
 SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path)
 
 enc , dec = instantiate_objects(SRC,TRG)
@@ -606,3 +606,50 @@ print("In Low German: ", ' '.join(translation[:-1]))
 
 # %%
 
+# calculate bleu score
+
+def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
+    
+    trgs = []
+    pred_trgs = []
+    
+    for datum in data:
+        
+        src = vars(datum)['src']
+        trg = vars(datum)['trg']
+        
+        pred_trg, _ = translate_sentence(src, src_field, trg_field, model, device, max_len)
+        
+        #cut off <eos> token
+        pred_trg = pred_trg[:-1]
+        
+        pred_trgs.append(pred_trg)
+        trgs.append([trg])
+        
+    return bleu_score(pred_trgs, trgs)
+
+# %%
+
+test_bleu = calculate_bleu(test_data,SRC,TRG,model,device)
+
+
+print(test_bleu)
+
+# %%
+
+from datetime import date
+
+today = date.today()
+
+results = pd.read_csv("data/iterations/bleu_scores.csv", index_col = 0)
+
+#results = pd.DataFrame(columns=["date","threshold","rounds","bleu_score"])
+
+round_result = [today, 1.07, 1, test_bleu]
+
+results.loc[len(results) +1,:] = round_result
+
+results.to_csv("data/iterations/bleu_scores.csv")
+
+
+# %%
