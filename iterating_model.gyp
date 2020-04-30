@@ -1,4 +1,3 @@
-# update from mac
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %% [markdown]
@@ -13,8 +12,6 @@ import torch.optim as optim
 
 import torchtext
 from torchtext.data import Field, BucketIterator,  TabularDataset
-from torchtext.data.metrics import bleu_score
-
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -45,7 +42,7 @@ torch.backends.cudnn.deterministic = True
 # We'll then create our tokenizers as before.
 
 # %%
-spacy_de = spacy.load('de_core_news_sm')
+spacy_de = spacy.load('de')
 
 
 # %%
@@ -60,7 +57,10 @@ def tokenize_nds(text):
     """
     Tokenizes Low German text from a string into a list of strings (tokens)
     """
-    return re.split("[.,\"\-;*:%?!&#\s]", text)
+    text = re.sub(r"([.,\"\-;*:%?!&#])", r" \1", text)
+    text = re.split(r"[\s]", text)
+    text = [a for a in text if len(a)>0]
+    return text
 
 # %% [markdown]
 # Our fields are the same as the previous notebook. The model expects data to be fed in with the batch dimension first, so we use `batch_first = True`. 
@@ -87,7 +87,7 @@ def load_train_test_data(path):
     train_data, valid_data, test_data = TabularDataset.splits(
         path= path, train='train_data.csv',
         validation='valid_data.csv', test='test_data.csv', format='csv', skip_header=True,
-        fields=[('id', None),('src', SRC), ('trg', TRG)])
+        fields=[('src', SRC), ('trg', TRG)])
 
     SRC.build_vocab(train_data, min_freq = 1)
     TRG.build_vocab(train_data, min_freq = 1)
@@ -100,7 +100,7 @@ def load_train_test_data(path):
         sort_within_batch = True,
         sort_key = lambda x : len(x.src),
         device = device)
-    return SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data
+    return SRC, TRG, train_iterator, valid_iterator, test_iterator
 
 
 
@@ -542,6 +542,27 @@ def initialize_weights(m):
         nn.init.xavier_uniform_(m.weight.data)
 
 
+# %%
+def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
+    
+    trgs = []
+    
+    pred_trgs = []
+    
+    for datum in data:
+        
+        src = vars(datum)['src']
+        trg = vars(datum)['trg']
+    
+        pred_trg, _ = translate_sentence(src, src_field, trg_field, model, device, max_len)
+    
+        #cut off <eos> token
+        pred_trg = pred_trg[:-1]
+    
+        pred_trgs.append(pred_trg)
+        trgs.append([trg])
+        
+    return bleu_score(pred_trgs, trgs)
 # %% [markdown]
 # The optimizer used in the original Transformer paper uses Adam with a learning rate that has a "warm-up" and then a "cool-down" period. BERT and other Transformer models use Adam with a fixed learning rate, so we will implement that. Check [this](http://nlp.seas.harvard.edu/2018/04/03/attention.html#optimizer) link for more details about the original Transformer's learning rate schedule.
 # 
@@ -643,73 +664,6 @@ def epoch_time(start_time, end_time):
 
 # %%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
-    
-    trgs = []
-    pred_trgs = []
-    
-    for datum in data:
-        
-        src = vars(datum)['src']
-        trg = vars(datum)['trg']
-        
-        pred_trg, _ = translate_sentence(src, src_field, trg_field, model, device, max_len)
-        
-        #cut off <eos> token
-        pred_trg = pred_trg[:-1]
-        
-        pred_trgs.append(pred_trg)
-        trgs.append([trg])
-        
-    return bleu_score(pred_trgs, trgs)
-
-def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 50):
-    
-    model.eval()
-        
-    if isinstance(sentence, str):
-        nlp = spacy.load('de_core_news_sm')
-        tokens = [token.text.lower() for token in nlp(sentence)]
-    else:
-        tokens = [token.lower() for token in sentence]
-
-
-    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
-        
-    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
-
-    src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
-    
-    src_mask = model.make_src_mask(src_tensor)
-    
-    with torch.no_grad():
-        enc_src = model.encoder(src_tensor, src_mask)
-
-    trg_indexes = [trg_field.vocab.stoi[trg_field.init_token]]
-
-    for i in range(max_len):
-
-        trg_tensor = torch.LongTensor(trg_indexes).unsqueeze(0).to(device)
-
-        trg_mask = model.make_trg_mask(trg_tensor)
-        
-        with torch.no_grad():
-            output, attention = model.decoder(trg_tensor, enc_src, trg_mask, src_mask)
-        
-        pred_token = output.argmax(2)[:,-1].item()
-        
-        trg_indexes.append(pred_token)
-
-        if pred_token == trg_field.vocab.stoi[trg_field.eos_token]:
-            break
-    
-    trg_tokens = [trg_field.vocab.itos[i] for i in trg_indexes]
-    
-    return trg_tokens[1:], attention
-
-
-
 # %%
 
 # you can download this file from facebook-LASER WIKIMATRIX project on github
@@ -718,18 +672,25 @@ wiki_complete = pd.read_csv("data/fb-wiki/WikiMatrix.de-nds.tsv.gz",sep="\t+"
                             , engine="python", header= None
                             ,encoding="utf-8", compression="gzip",
                            names = ["threshold","deu","nds"])
+
+# function to select a subset of the complete dataset
 def wiki_selection(df, boundary):
     '''returns a copy of wikipedia dataframe only containing values above boundary'''
     df = df.copy()
     df = df[(df.threshold < 1.2) & (df.threshold > boundary)]
     return df[["deu","nds"]]
-# we use as boundary right now 1.07 because faults seem to increase highly below that
-wiki_raw = wiki_selection(wiki_complete, 1.07)
+
+
+# with an under boundary we can control how big and faulty our dataset should be
+# we use as boundary 1.04 to find a trade of between a big dataset and the chance to find good sentences
+wiki_raw = wiki_selection(wiki_complete, 1.04)
+wiki_raw.shape
+# %%
 column_names_platt = ["id", "language", "nds"]
 column_names_deu = ["id", "language", "deu"]
-nds_sentences = pd.read_csv("data/tatoabe/nds_sentences.tsv", sep= "\t", header = None, names=column_names_platt)
-deu_sentences = pd.read_csv("data/tatoabe/deu_sentences.tsv", sep= "\t", header = None, names=column_names_deu)
-link_sentences = pd.read_csv("data/tatoabe/links.csv", sep= "\t", header = None, names=["origin","translation"])
+nds_sentences = pd.read_csv("data/nds_sentences.tsv", sep= "\t", header = None, names=column_names_platt)
+deu_sentences = pd.read_csv("data/deu_sentences.tsv", sep= "\t", header = None, names=column_names_deu)
+link_sentences = pd.read_csv("data/links.csv", sep= "\t", header = None, names=["origin","translation"])
 
 tatoabe_raw = link_sentences.merge(deu_sentences
                      , left_on = "origin"
@@ -743,8 +704,8 @@ tatoabe_raw = tatoabe_raw.drop(tatoabe_raw[tatoabe_raw["nds"].str.contains('\(fr
 
 def get_length(df):
     df_output = df.copy()
-    df_output.nds = df_output.nds.str.split(r"[\s.,;:?!-\"\']+")
-    df_output.deu = df_output.deu.str.split(r"[\s.,;:?!-\"\']+")
+    df_output.nds = df_output.nds.str.split(r"[\s.,;:?!-\"\']*")
+    df_output.deu = df_output.deu.str.split(r"[\s.,;:?!-\"\']*")
     return df_output.applymap(len)
 
 def get_range(df, start, end):
@@ -757,12 +718,12 @@ def get_range(df, start, end):
 # replace "ik" with "ick"
 def replace_ik(df):    
     print("Replacements of 'ick' to 'ik': ",df.nds.str.count(r"(I|i)ck").sum())
-    df.nds = df.nds.str.replace(r"(I|i)ck", r"\1k")
+    df.nds = df.nds.str.replace("(I|i)ck", "\1k")
 
 # replace us with uns
 def replace_uns(df):
     print("Replacements of 'us' to 'uns'", df.nds.str.count("\s(U|u)s\s").sum())
-    df.nds = df.nds.str.replace(r"\s(U|u)s\s", r"\1ns")
+    df.nds = df.nds.str.replace("\s(U|u)s\s", "\1ns")
 
 # "sch" before a consonant will be replaced with s 
 def replace_s(df):
@@ -774,9 +735,11 @@ def replace_s(df):
 # the wikipedia dataset uses points to identify sentences, but shortens therefore when enumeration is used.
 # these half sentences mostly doesn't make sense, so they will be dropped.
 def delete_wrong_enumeration(df):
-    pass
-    # future work
-    #return df[df.deu.str.endswith(r"[0-9]+.")]
+    
+    len_before = len(df)
+    drop_index = df[df.nds.str.contains("\d\.") | df.deu.str.contains("\d\.")].index
+    df.drop(index=drop_index, inplace = True)
+    print("Deleted wrong enumerations: ", len_before - len(df))
 def regex_all(df):
     replace_ik(df)
     replace_uns(df)
@@ -786,29 +749,28 @@ tatoabe_df = get_range(tatoabe_raw, 1, 25)
 
 regex_all(wiki_df)
 regex_all(tatoabe_df)
-
+delete_wrong_enumeration(wiki_df)
 
 # %%
-# making one continous index through the whole dataset
-tatoabe_df.reset_index(drop=True, inplace = True)
-index_range_wiki = np.arange(len(tatoabe_df),len(wiki_df) + len(tatoabe_df))
-wiki_df.set_index(index_range_wiki, inplace = True)
+#wiki_df.reset_index(np.arange(len(tatoabe_df + 1),len(wiki_df +1)))
+
+
+
+
+
+
 
 
 
 
 #%%
-wiki_df.head(10)
-tatoabe_df.head(10)
 
-
-#%%
 # read train-test-split
 
 def read_train_test_split(path):
-    train_df = pd.read_csv(path + "train_data.csv", index_col=0)
-    valid_df = pd.read_csv(path + "valid_data.csv", index_col=0)
-    test_df = pd.read_csv(path + "test_data.csv", index_col=0)
+    train_df = pd.read_csv(path + "train_data.csv")
+    valid_df = pd.read_csv(path + "valid_data.csv")
+    test_df = pd.read_csv(path + "test_data.csv")
     train_valid = train_df.append(valid_df)
     dataset = train_valid.append(test_df)
     return dataset
@@ -827,9 +789,9 @@ def save_train_test_split(df, path):
     train_data, test_data = train_test_split(df, test_size=0.1, random_state=SEED)
     train_data, valid_data = train_test_split(train_data, test_size=0.1, random_state=SEED)
 
-    train_data.to_csv(path_or_buf= path + "train_data.csv")
-    valid_data.to_csv(path_or_buf= path + "valid_data.csv")
-    test_data.to_csv(path_or_buf= path + "test_data.csv")
+    train_data.to_csv(path_or_buf= path + "train_data.csv", index=False)
+    valid_data.to_csv(path_or_buf= path + "valid_data.csv", index=False)
+    test_data.to_csv(path_or_buf= path + "test_data.csv", index=False)
 
     print("Numbers of training samples: " , len(train_data))
     print("Number of validation samples: ",len(valid_data))
@@ -840,7 +802,7 @@ def save_train_test_split(df, path):
 save_train_test_split(tatoabe_df, path)
 
 def save_residual_data(df, path):
-    df.to_csv(path + "residuals.tsv", sep="\t")
+    df.to_csv(path + "residuals.tsv", sep="\t" , index = False)
 
 # our first residual data is our cleaned wikipedia dataset
 save_residual_data(wiki_df, path)
@@ -881,34 +843,26 @@ def evaluate_residual(model, iterator, criterion):
 
 
 # %%
-# creating dataframes for collecting results
-loss_summary = pd.DataFrame()
-
-round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
-                                       "residual_loss","residual_mins","residual_secs","quantile",
-                                       "test_bleu", "new_data_bleu"])
-# %%
 
 # define error quantile until which the data should be kept for the next round 
-#quantile = 0.25
-include_bleu = False
+quantile = 0.25
+
+bleu_score = 0
+
+results = pd.DataFrame(columns = ["round", "best_valid_loss", "test_loss", "resi_loss_quantile", "resi_loss_median"])
+
+residual_id = pd.DataFrame(np.zeros([len(wiki_raw),20]))
 
 residual_loss_before = float("Inf")
 
 # %%
 
-for i in range(6):
+for i in range(20):
 
     print("===================================================")
     print("Round: ", i)
     path = "data/iterations/round_" + str(i) + "/"
-    SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path)
-    debug_text_test_src = vars(test_data.examples[8])['src']
-    debug_text_test_trg = vars(test_data.examples[8])['trg']
-
-
-    print("Debug Test Text Source: ", debug_text_test_src)
-    print("Debug Test Text Target: ", debug_text_test_trg)
+    SRC, TRG, train_iterator, valid_iterator, test_iterator = load_train_test_data(path)
 
     enc , dec = instantiate_objects(SRC,TRG)
 
@@ -929,13 +883,17 @@ for i in range(6):
 
 
 
-    N_EPOCHS = 5
+
+
+
+
+
+    N_EPOCHS = 3
 
     best_valid_loss = float('inf')
 
     for epoch in range(N_EPOCHS):
         
-
         start_time = time.time()
         
         train_loss = train(model, train_iterator, optimizer, criterion, CLIP)
@@ -954,86 +912,57 @@ for i in range(6):
         print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
 
 
-
     model.load_state_dict(torch.load(path + 'model.pt'))
 
     test_loss = evaluate(model, test_iterator, criterion)
 
     print(f'| Test Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} |')
 
-    # calculating the error for the data which was not included in the model & testing
+    # for testing wikipedia pairings
     residual_pairs = TabularDataset(path=path + "residuals.tsv", format= "tsv", skip_header = True
-                                , fields = [('id', None),("src", SRC),("trg", TRG)])
-    debug_text_residual_src = vars(residual_pairs.examples[8])['src']
-    debug_text_residual_trg = vars(residual_pairs.examples[8])['trg']
-    print("Debug Residual Text Source: ", debug_text_residual_src)
-    print("Debug Residual Text Target: ", debug_text_residual_trg)
-
+                                , fields = [("src", SRC),("trg", TRG)])
 
     residual_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
                                    , shuffle = False , sort_within_batch=False , repeat = False)
 
     start_time = time.time()
-    
+ 
     residual_loss , residual_batch_loss = evaluate_residual(model, residual_iterator, criterion)
 
     end_time = time.time()
-    residual_mins, residual_secs = epoch_time(start_time, end_time)
+    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
     print("Residual loss total: ",residual_loss)
-    print(f"Residual Evaluation Time: {residual_mins}m {residual_secs}s" )
-    # appending the error to our data and select only the best 25%
-    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t", index_col=0)
+    print(f"Residual Evaluation Time: {epoch_mins}m {epoch_secs}s" )
+    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t")
     residual_df.loc[:,"loss"] = residual_batch_loss
-
-    #storing the loss in the loss summary
-
-    loss_summary.loc[:, "loss_round_" + str(i)] = residual_df.loss
-    loss_summary.to_csv("data/iterations/loss_summary.csv")
-
-    # calcualting the 25% quantile
     quantile = residual_df.loss.quantile(0.25)
     print("Quantile: ", quantile)
-
-    # appending the best 25% to our existing training dataset and split & save for next round
     new_train_data = residual_df[residual_df.loss <= quantile][["deu","nds"]]
     old_train_data = read_train_test_split(path)
     dataset = old_train_data.append(new_train_data)
     new_residual_data = residual_df[residual_df.loss > quantile][["deu","nds"]]
     new_path = "data/iterations/round_" + str(i + 1) + "/"
-
-    # shuffling for the next round is important, so the new dataset is integrated through the whole training process
     save_train_test_split(dataset, new_path)
     save_residual_data(new_residual_data ,new_path)
-    new_train_data.to_csv(new_path + "new_training_data.csv")
+
+
+    
 
 
 
 
-    # calculating bleu score
-    if include_bleu == True:
-        test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
-        print("Test BLEU-Score: ",test_bleu)
-        
-        new_data_pairs = TabularDataset(path=new_path + "new_training_data.csv", format= "csv", skip_header = True
-                                    , fields = [('id', None),("src", SRC),("trg", TRG)])
 
-        debug_text_nd = vars(new_data_pairs.examples[8])['trg']
-        
-        print("Debug New Data Text: ", debug_text_nd)
-
-        new_data_bleu = calculate_bleu(new_data_pairs, SRC, TRG, model, device)
-        print("New Data BLEU-Score: ",new_data_bleu)
-    else:
-        test_bleu = np.NaN
-        new_data_bleu = np.NaN
-
-    # saving stats
-    round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
-                    residual_mins,residual_secs,quantile, test_bleu, new_data_bleu]
-    round_stats.to_csv("data/iterations/round_stats.csv")
+# %%
 
 
 
+# %%
+
+
+# %%
+
+
+# %
 
 # %% [markdown]
 # ## Inference
@@ -1059,7 +988,48 @@ for i in range(6):
 # - return the output sentence (with the `<sos>` token removed) and the attention from the last layer
 
 # %%
+def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 50):
+    
+    model.eval()
+        
+    if isinstance(sentence, str):
+        nlp = spacy.load('de')
+        tokens = [token.text.lower() for token in nlp(sentence)]
+    else:
+        tokens = [token.lower() for token in sentence]
 
+    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
+        
+    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
+
+    src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
+    
+    src_mask = model.make_src_mask(src_tensor)
+    
+    with torch.no_grad():
+        enc_src = model.encoder(src_tensor, src_mask)
+
+    trg_indexes = [trg_field.vocab.stoi[trg_field.init_token]]
+
+    for i in range(max_len):
+
+        trg_tensor = torch.LongTensor(trg_indexes).unsqueeze(0).to(device)
+
+        trg_mask = model.make_trg_mask(trg_tensor)
+        
+        with torch.no_grad():
+            output, attention = model.decoder(trg_tensor, enc_src, trg_mask, src_mask)
+        
+        pred_token = output.argmax(2)[:,-1].item()
+        
+        trg_indexes.append(pred_token)
+
+        if pred_token == trg_field.vocab.stoi[trg_field.eos_token]:
+            break
+    
+    trg_tokens = [trg_field.vocab.itos[i] for i in trg_indexes]
+    
+    return trg_tokens[1:], attention
 
 # %% [markdown]
 # We'll now define a function that displays the attention over the source sentence for each step of the decoding. As this model has 8 heads our model we can view the attention for each of the heads.
@@ -1094,77 +1064,85 @@ def display_attention(sentence, translation, attention, n_heads = 8, n_rows = 4,
 # First, we'll get an example from the training set.
 
 # %%
-example_idx = 8
+# 'example_idx = 8
 
-src = vars(train_data.examples[example_idx])['src']
-trg = vars(train_data.examples[example_idx])['trg']
+# src = vars(train_data.examples[example_idx])['src']
+# trg = vars(train_data.examples[example_idx])['trg']
 
-print(f'src = {src}')
-print(f'trg = {trg}')
+# print(f'src = {src}')
+# print(f'trg = {trg}')
 
 # # %% [markdown]
 # # Our translation looks pretty good, actually better than the original target sentence.
 
 # # %%
-translation, attention = translate_sentence(src, SRC, TRG, model, device)
+# translation, attention = translate_sentence(src, SRC, TRG, model, device)
 
-print(f'predicted trg = {translation}')
+# print(f'predicted trg = {translation}')
 
 # # %% [markdown]
 # # We can see the attention from each head below. Each is certainly different, but it's difficult (perhaps impossible) to reason about what head has actually learned to pay attention to. Some heads pay full attention to "eine" when translating "a", some don't at all, and some do a little. They all seem to follow the similar "downward staircase" pattern and the attention when outputting the last two tokens is equally spread over the final two tokens in the input sentence.
 
 # # %%
-display_attention(src, translation, attention)
+# display_attention(src, translation, attention)
 
 # # %% [markdown]
 # # Next, let's get an example the model has not been trained on from the validation set.
 
 # # %%
-example_idx = 8
+# # example_idx = 8
 
-src = vars(valid_data.examples[example_idx])['src']
-trg = vars(valid_data.examples[example_idx])['trg']
+# # src = vars(valid_data.examples[example_idx])['src']
+# # trg = vars(valid_data.examples[example_idx])['trg']
 
-print(f'src = {src}')
-print(f'trg = {trg}')
+# # print(f'src = {src}')
+# # print(f'trg = {trg}')
 
 # # %% [markdown]
 # # The model translates it one by one.
 
 # # %%
-translation, attention = translate_sentence(src, SRC, TRG, model, device)
+# translation, attention = translate_sentence(src, SRC, TRG, model, device)
 
-print(f'predicted trg = {translation}')
+# print(f'predicted trg = {translation}')
 
-
+# # %% [markdown]
+# # 
 
 # # %%
-display_attention(src, translation, attention)
+# display_attention(src, translation, attention)
 
 # # %% [markdown]
 # # Finally, we'll look at an example from the test data.
 
-# %%
-example_idx = 2132
+# # %%
+# example_idx = 18
 
-src = vars(test_data.examples[example_idx])['src']
-trg = vars(test_data.examples[example_idx])['trg']
+# src = vars(test_data.examples[example_idx])['src']
+# trg = vars(test_data.examples[example_idx])['trg']
 
-print(f'src = {src}')
-print(f'trg = {trg}')
+# print(f'src = {src}')
+# print(f'trg = {trg}')
 
 # # %% [markdown]
 # # The translation from test dataset is also correct.
 
 # # %%
-translation, attention = translate_sentence(src, SRC, TRG, model, device)
+# translation, attention = translate_sentence(src, SRC, TRG, model, device)
 
-print(f'predicted trg = {translation}')
+# print(f'predicted trg = {translation}')
 
 
 # # %%
-display_attention(src, translation, attention)
+# display_attention(src, translation, attention)
+# '
+# # %% [markdown]
+# # ## BLEU
+# # 
+# # Finally we calculate the BLEU score for the Transformer.
 
+# # %%
+# from torchtext.data.metrics import bleu_score
 
 
 
@@ -1172,19 +1150,19 @@ display_attention(src, translation, attention)
 # We get a BLEU score of 23.97, which beats the xxx of the convolutional sequence-to-sequence model and xxx of the attention based RNN model. All this whilst having the least amount of parameters and the fastest training time!
 
 # %%
-bleu_score = calculate_bleu(test_data, SRC, TRG, model, device)
+#bleu_score = calculate_bleu(test_data, SRC, TRG, model, device)
 
-print(f'BLEU score = {bleu_score*100:.2f}')
+#print(f'BLEU score = {bleu_score*100:.2f}')
 
 # %% [markdown]
 # In this section you can enter a custom sentence and look at the predicted translation.
 
 # %%
-custom_sentence = "Plattdeutsch auf Wikipedia ist eine Katastrophe."
+#custom_sentence = "Jo, was geht denn, digga"
 
-translation, attention = translate_sentence(custom_sentence, SRC, TRG, model, device)
-print("In German: ", custom_sentence)
-print("In Low German: ", ' '.join(translation[:-1]))
+#translation, attention = translate_sentence(custom_sentence, SRC, TRG, model, device)
+#print("In German: ", custom_sentence)
+#print("In Low German: ", ' '.join(translation[:-1]))
 
 
 # %%
