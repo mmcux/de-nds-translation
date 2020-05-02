@@ -849,20 +849,40 @@ quantile = 0.25
 
 bleu_score = 0
 
-results = pd.DataFrame(columns = ["round", "best_valid_loss", "test_loss", "resi_loss_quantile", "resi_loss_median"])
+round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
+                                       "residual_loss","residual_mins","residual_secs","quantile",
+                                       "test_bleu", "total_samples"])
 
 residual_id = pd.DataFrame(np.zeros([len(wiki_raw),20]))
 
 residual_loss_before = float("Inf")
 
+
+
 # %%
 
-for i in range(20):
+# define error quantile until which the data should be kept for the next round 
+#quantile = 0.25
+include_bleu = True
+
+residual_loss_before = float("Inf")
+
+# %%
+
+for i in range(8):
 
     print("===================================================")
     print("Round: ", i)
     path = "data/iterations/round_" + str(i) + "/"
-    SRC, TRG, train_iterator, valid_iterator, test_iterator = load_train_test_data(path)
+    SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path)
+    total_samples = (len(train_iterator) + len(valid_iterator) + len(test_iterator))*64
+
+    debug_text_test_src = vars(test_data.examples[8])['src']
+    debug_text_test_trg = vars(test_data.examples[8])['trg']
+
+
+    print("Debug Test Text Source: ", debug_text_test_src)
+    print("Debug Test Text Target: ", debug_text_test_trg)
 
     enc , dec = instantiate_objects(SRC,TRG)
 
@@ -883,17 +903,13 @@ for i in range(20):
 
 
 
-
-
-
-
-
-    N_EPOCHS = 3
+    N_EPOCHS = 5
 
     best_valid_loss = float('inf')
 
     for epoch in range(N_EPOCHS):
         
+
         start_time = time.time()
         
         train_loss = train(model, train_iterator, optimizer, criterion, CLIP)
@@ -912,40 +928,74 @@ for i in range(20):
         print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
 
 
+
     model.load_state_dict(torch.load(path + 'model.pt'))
 
     test_loss = evaluate(model, test_iterator, criterion)
 
     print(f'| Test Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} |')
 
-    # for testing wikipedia pairings
+    # calculating the error for the data which was not included in the model & testing
     residual_pairs = TabularDataset(path=path + "residuals.tsv", format= "tsv", skip_header = True
-                                , fields = [("src", SRC),("trg", TRG)])
+                                , fields = [('id', None),("src", SRC),("trg", TRG)])
+    debug_text_residual_src = vars(residual_pairs.examples[8])['src']
+    debug_text_residual_trg = vars(residual_pairs.examples[8])['trg']
+    print("Debug Residual Text Source: ", debug_text_residual_src)
+    print("Debug Residual Text Target: ", debug_text_residual_trg)
+
 
     residual_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
                                    , shuffle = False , sort_within_batch=False , repeat = False)
 
     start_time = time.time()
- 
+    
     residual_loss , residual_batch_loss = evaluate_residual(model, residual_iterator, criterion)
 
     end_time = time.time()
-    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+    residual_mins, residual_secs = epoch_time(start_time, end_time)
     print("Residual loss total: ",residual_loss)
-    print(f"Residual Evaluation Time: {epoch_mins}m {epoch_secs}s" )
-    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t")
+    print(f"Residual Evaluation Time: {residual_mins}m {residual_secs}s" )
+    # appending the error to our data and select only the best 25%
+    residual_df = pd.read_csv(path + "residuals.tsv", sep="\t", index_col=0)
     residual_df.loc[:,"loss"] = residual_batch_loss
+
+    #storing the loss in the loss summary
+
+    loss_summary.loc[:, "loss_round_" + str(i)] = residual_df.loss
+    loss_summary.to_csv("data/iterations/loss_summary.csv")
+
+    # calcualting the 25% quantile
     quantile = residual_df.loss.quantile(0.25)
     print("Quantile: ", quantile)
+
+    # appending the best 25% to our existing training dataset and split & save for next round
     new_train_data = residual_df[residual_df.loss <= quantile][["deu","nds"]]
     old_train_data = read_train_test_split(path)
     dataset = old_train_data.append(new_train_data)
     new_residual_data = residual_df[residual_df.loss > quantile][["deu","nds"]]
     new_path = "data/iterations/round_" + str(i + 1) + "/"
+
+    # shuffling for the next round is important, so the new dataset is integrated through the whole training process
     save_train_test_split(dataset, new_path)
     save_residual_data(new_residual_data ,new_path)
+    new_train_data.to_csv(new_path + "new_training_data.csv")
 
 
+
+
+    # calculating bleu score
+    if include_bleu == True:
+        test_bleu = calculate_bleu(test_data, SRC, TRG, model, device)
+        print("Test BLEU-Score: ",test_bleu)
+        
+
+    else:
+        test_bleu = np.NaN
+
+    # saving stats
+    round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
+                    residual_mins,residual_secs,quantile, test_bleu, total_samples]
+    round_stats.to_csv("data/iterations/round_stats.csv")
     
 
 
