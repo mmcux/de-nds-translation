@@ -14,6 +14,7 @@ import torch.optim as optim
 import torchtext
 from torchtext.data import Field, BucketIterator,  TabularDataset
 from torchtext.data.metrics import bleu_score
+from nltk.translate import bleu_score
 
 
 import matplotlib.pyplot as plt
@@ -663,7 +664,7 @@ def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
         pred_trgs.append(pred_trg)
         trgs.append([trg])
         
-    return bleu_score(pred_trgs, trgs)
+    return bleu_score.corpus_bleu(trgs, pred_trgs)
 
 def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 50):
     
