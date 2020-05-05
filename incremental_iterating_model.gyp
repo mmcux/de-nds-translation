@@ -75,6 +75,8 @@ def tokenize_nds(text):
 # %%
 # loading in the data into torchtext datasets
 def load_train_test_data(path):
+    train_path = path + "train_data.csv"
+    valid_path = path + "valid_data.csv"
     SRC = Field(tokenize = tokenize_de, 
             init_token = '<sos>', 
             eos_token = '<eos>', 
@@ -86,23 +88,24 @@ def load_train_test_data(path):
             eos_token = '<eos>', 
             lower = True, 
             batch_first = True)
-    train_data, valid_data, test_data = TabularDataset.splits(
-        path= path, train='train_data.csv',
-        validation='valid_data.csv', test='test_data.csv', format='csv', skip_header=True,
-        fields=[('id', None),('src', SRC), ('trg', TRG)])
+
+    train_data = TabularDataset(path=train_path, format= "csv", skip_header = True
+                            , fields = [('id', None),("src", SRC),("trg", TRG)])
+    valid_data = TabularDataset(path=valid_path, format= "csv", skip_header = True
+                            , fields = [('id', None),("src", SRC),("trg", TRG)])
 
     SRC.build_vocab(train_data, min_freq = 1)
     TRG.build_vocab(train_data, min_freq = 1)
 
     BATCH_SIZE = 64
 
-    train_iterator, valid_iterator, test_iterator = BucketIterator.splits(
-        (train_data, valid_data, test_data), 
+    train_iterator, valid_iterator = BucketIterator.splits(
+        (train_data, valid_data), 
         batch_size = BATCH_SIZE,
         sort_within_batch = True,
         sort_key = lambda x : len(x.src),
         device = device)
-    return SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data
+    return SRC, TRG, train_iterator, valid_iterator
 
 
 
@@ -720,16 +723,13 @@ def save_train_test_split(df, path):
         print("Directory " , path ,  " Created ") 
     except FileExistsError:
         print("Directory " , path ,  " already exists") 
-    train_data, test_data = train_test_split(df, test_size=0.1, random_state=SEED)
-    train_data, valid_data = train_test_split(train_data, test_size=0.1, random_state=SEED)
+    train_data, valid_data = train_test_split(df, test_size=0.1, random_state=SEED)
 
     train_data.to_csv(path_or_buf= path + "train_data.csv")
     valid_data.to_csv(path_or_buf= path + "valid_data.csv")
-    test_data.to_csv(path_or_buf= path + "test_data.csv")
 
     print("Numbers of training samples: " , len(train_data))
     print("Number of validation samples: ",len(valid_data))
-    print("Number of test samples: ",len(test_data))
 
 
 
@@ -738,9 +738,7 @@ def save_train_test_split(df, path):
 def read_train_test_split(path):
     train_df = pd.read_csv(path + "train_data.csv", index_col=0)
     valid_df = pd.read_csv(path + "valid_data.csv", index_col=0)
-    test_df = pd.read_csv(path + "test_data.csv", index_col=0)
-    train_valid = train_df.append(valid_df)
-    dataset = train_valid.append(test_df)
+    dataset = train_df.append(valid_df)
     return dataset
 
 
@@ -898,16 +896,38 @@ wiki_df.set_index(index_range_wiki, inplace = True)
 
 
 #%%
-wiki_df.head(10)
-tatoabe_df.head(10)
+# loading seperate test set and delete it from dataset
+path = "data/incremental_iterations/"
+
+        # Create target Directory
+try:       
+    os.makedirs(path)
+    print("Directory " , path ,  " Created ") 
+except FileExistsError:
+    print("Directory " , path ,  " already exists") 
+
+test_df = pd.read_csv("LINK", index_col=0)
+
+test_tatoabe = [idx for idx in test_df.index.tolist() if idx <= len(tatoabe_df)]
+test_wiki = [idx for idx in test_df.index.tolist() if idx > len(tatoabe_df)]
+print("Dropping test entries from Tatoabe: ", len(test_tatoabe))
+print("Dropping test entries from Wikipedia: ", len(test_wiki))
+tatoabe_df.drop(test_tatoabe, inplace=True)
+wiki_df.drop(test_wiki, inplace=True)
+
+test_path = path + "test_data.csv"
+test_df.to_csv(test_path)
+test_data = TabularDataset(path=test_path, format= "csv", skip_header = True
+                        , fields = [('id', None),("src", SRC),("trg", TRG)])
+
+test_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
+                                , shuffle = False , sort_within_batch=False , repeat = False)
 
 
 #%%
 # creating data for the basis round
 
 runs = 6
-
-path = "data/incremental_iterations/"
 
 path_round = path + "round_"
 
@@ -943,9 +963,9 @@ for i in range(runs):
     print("Round: ", i)
     path_iter = path_round + str(i) + "/"
     # load the iterators which contains already the batches
-    SRC, TRG, train_iterator, valid_iterator, test_iterator, test_data = load_train_test_data(path_iter)
+    SRC, TRG, train_iterator, valid_iterator = load_train_test_data(path_iter)
     # count how many samples we have int total
-    total_samples = (len(train_iterator) + len(valid_iterator) + len(test_iterator))*64
+    total_samples = (len(train_iterator) + len(valid_iterator))*64
     debug_text_test_src = vars(test_data.examples[8])['src']
     debug_text_test_trg = vars(test_data.examples[8])['trg']
 
