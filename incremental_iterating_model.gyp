@@ -13,7 +13,6 @@ import torch.optim as optim
 
 import torchtext
 from torchtext.data import Field, BucketIterator,  TabularDataset
-from torchtext.data.metrics import bleu_score
 from nltk.translate import bleu_score
 
 
@@ -46,7 +45,7 @@ torch.backends.cudnn.deterministic = True
 # We'll then create our tokenizers as before.
 
 # %%
-spacy_de = spacy.load('de_core_news_sm')
+spacy_de = spacy.load('de')
 
 
 # %%
@@ -674,7 +673,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     model.eval()
         
     if isinstance(sentence, str):
-        nlp = spacy.load('de_core_news_sm')
+        nlp = spacy.load('de')
         tokens = [token.text.lower() for token in nlp(sentence)]
     else:
         tokens = [token.lower() for token in sentence]
@@ -790,7 +789,7 @@ def evaluate_residual(model, iterator, criterion):
 
 # you can download this file from facebook-LASER WIKIMATRIX project on github
 
-wiki_complete = pd.read_csv("data/fb-wiki/WikiMatrix.de-nds.tsv.gz",sep="\t+"
+wiki_complete = pd.read_csv("https://llmm.webo.family/index.php/s/fFwxynQz4q793KP/download",sep="\t+"
                             , engine="python", header= None
                             ,encoding="utf-8", compression="gzip",
                            names = ["threshold","deu","nds"])
@@ -818,9 +817,9 @@ wiki_raw.tail(10)
 # tatoabe dataset
 column_names_platt = ["id", "language", "nds"]
 column_names_deu = ["id", "language", "deu"]
-nds_sentences = pd.read_csv("data/tatoabe/nds_sentences.tsv", sep= "\t", header = None, names=column_names_platt)
-deu_sentences = pd.read_csv("data/tatoabe/deu_sentences.tsv", sep= "\t", header = None, names=column_names_deu)
-link_sentences = pd.read_csv("data/tatoabe/links.csv", sep= "\t", header = None, names=["origin","translation"])
+nds_sentences = pd.read_csv("https://llmm.webo.family/index.php/s/GXYbcE2TZk3AZrF/download", sep= "\t", header = None, names=column_names_platt)
+deu_sentences = pd.read_csv("https://llmm.webo.family/index.php/s/5wFFEzG9TE7XXbM/download", sep= "\t", header = None, names=column_names_deu)
+link_sentences = pd.read_csv("https://llmm.webo.family/index.php/s/2ed6bm35GY6ktTo/download", sep= "\t", header = None, names=["origin","translation"])
 
 tatoabe_raw = link_sentences.merge(deu_sentences
                      , left_on = "origin"
@@ -876,6 +875,43 @@ def regex_all(df):
     replace_uns(df)
     replace_s(df)
 
+def replace(df, word, correction):
+    count = df.nds.str.count(rf"\b{word}\b").sum()
+    print("Replacements of " , word , "to ", correction)
+    print("Number of replacements: ", count)
+    df.nds = df.nds.str.replace(rf"\b{word}\b", correction, case = True)
+    return count
+
+def dict_correction(df):
+    # load in replacement-list for more common spelling
+    dict_hansen = pd.read_csv("https://llmm.webo.family/index.php/s/c4jHWQYCreKWJGQ/download", index_col = 0, sep=";")
+    dict_hansen.dropna(inplace=True)
+    dict_hansen = dict_hansen[dict_hansen["count"] > 0][["word","replaced_by"]]
+    dict_hansen.reset_index(drop=True,inplace=True)
+
+    ignore_str = "weer ween weern weerst ween  weer ween weren ween hebben harr hatt harrst hatt harr hatt harrn hatt warrn wöör worrn wöörst worrn wöör worrn wörrn worrn doon harr doon harrst doon harr doon harrn doon"
+    ignore_str = ignore_str + "bün heff du büst hest  hett sünd hebbt warrn warr warrst warrt warrt doon do deist deit doot"
+
+    replacements = pd.DataFrame(np.nan, index=np.arange(0,len(dict_hansen)), columns=['word', 'replaced_by', 'count'])
+
+
+    total_count = 0
+    idx_df = 0
+    for i in dict_hansen.index:
+        correction = dict_hansen.loc[i,"replaced_by"]
+        word = dict_hansen.loc[i,"word"]
+        if word not in ignore_str:
+            count = replace(df, word, correction)
+            total_count += count
+            print("Total replacements: ",total_count)
+            print("--------------------------------")
+            replacements.loc[idx_df,:] = [word, correction,count]
+            idx_df += 1
+    print("Total number of replacements: ", replacements["count"].sum())    
+    return replacements
+
+
+
 # %%
 wiki_df = get_range(wiki_raw, 1, 25)
 tatoabe_df = get_range(tatoabe_raw, 1, 25)
@@ -885,7 +921,9 @@ regex_all(tatoabe_df)
 
 delete_wrong_enumeration(wiki_df)
 
-
+replaced_stats_wiki = dict_correction(wiki_df)
+replaced_stats_tatoabe = dict_correction(tatoabe_df)
+replaced_stats_wiki.head(5)
 # %%
 # making one continous index through the whole dataset
 tatoabe_df.reset_index(drop=True, inplace = True)
@@ -897,7 +935,7 @@ wiki_df.set_index(index_range_wiki, inplace = True)
 
 #%%
 # loading seperate test set and delete it from dataset
-path = "data/incremental_iterations/"
+path = "data/"
 
         # Create target Directory
 try:       
@@ -906,7 +944,16 @@ try:
 except FileExistsError:
     print("Directory " , path ,  " already exists") 
 
+
+# !!!!!! We can take only this dataset because the above steps are exactly the same as it was for creating this test dataset
+# If you choose another threshold for the Wikipedia dataset you have to create a new representative test-dataset with the right indices
+# or delete the test data by comparing the sentences
+
+# in round seven we had in a previous run more or less an equal test set
+# means ca. 50% of the test set are from Tatoabe and the other 50% from Wikipedia
 test_df = pd.read_csv("LINK", index_col=0)
+
+replaced_stats_test = dict_correction(test_df)
 
 test_tatoabe = [idx for idx in test_df.index.tolist() if idx <= len(tatoabe_df)]
 test_wiki = [idx for idx in test_df.index.tolist() if idx > len(tatoabe_df)]
@@ -917,17 +964,13 @@ wiki_df.drop(test_wiki, inplace=True)
 
 test_path = path + "test_data.csv"
 test_df.to_csv(test_path)
-test_data = TabularDataset(path=test_path, format= "csv", skip_header = True
-                        , fields = [('id', None),("src", SRC),("trg", TRG)])
 
-test_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
-                                , shuffle = False , sort_within_batch=False , repeat = False)
 
 
 #%%
 # creating data for the basis round
 
-runs = 6
+runs = 12
 
 path_round = path + "round_"
 
@@ -966,12 +1009,15 @@ for i in range(runs):
     SRC, TRG, train_iterator, valid_iterator = load_train_test_data(path_iter)
     # count how many samples we have int total
     total_samples = (len(train_iterator) + len(valid_iterator))*64
-    debug_text_test_src = vars(test_data.examples[8])['src']
-    debug_text_test_trg = vars(test_data.examples[8])['trg']
+    test_data = TabularDataset(path=test_path, format= "csv", skip_header = True
+                        , fields = [('id', None),("src", SRC),("trg", TRG)])
 
-
-    print("Debug Test Text Source: ", debug_text_test_src)
-    print("Debug Test Text Target: ", debug_text_test_trg)
+    test_iterator = BucketIterator(
+        test_data, 
+        batch_size = 64,
+        sort_within_batch = True,
+        sort_key = lambda x : len(x.src),
+        device = device)
 
     enc , dec = instantiate_objects(SRC,TRG)
 
