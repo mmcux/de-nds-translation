@@ -804,12 +804,6 @@ def wiki_selection(df, boundary):
 # with an under boundary we can control how big and faulty our dataset should be
 # we use as boundary 1.04 to find a trade of between a big dataset and the chance to find good sentences
 wiki_raw = wiki_selection(wiki_complete, 1.04)
-wiki_raw.shape
-
-# %%
-wiki_raw.tail(10)
-
-
 
 
 # %%
