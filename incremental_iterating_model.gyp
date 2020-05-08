@@ -784,152 +784,23 @@ def evaluate_residual(model, iterator, criterion):
     return epoch_loss / len(iterator), batch_loss
 
 
-# %%
+# %% [markdown]
 
-# you can download this file from facebook-LASER WIKIMATRIX project on github
+# Now we will load in our preprocessed data which we created in the data_preprocessing notebook.
 
-wiki_complete = pd.read_csv("https://llmm.webo.family/index.php/s/fFwxynQz4q793KP/download",sep="\t+"
-                            , engine="python", header= None
-                            ,encoding="utf-8", compression="gzip",
-                           names = ["threshold","deu","nds"])
-
-# function to select a subset of the complete dataset
-def wiki_selection(df, boundary):
-    '''returns a copy of wikipedia dataframe only containing values above boundary'''
-    df = df.copy()
-    df = df[(df.threshold < 1.2) & (df.threshold > boundary)]
-    return df[["deu","nds"]]
-
-
-# with an under boundary we can control how big and faulty our dataset should be
-# we use as boundary 1.04 to find a trade of between a big dataset and the chance to find good sentences
-wiki_raw = wiki_selection(wiki_complete, 1.04)
-
+# Here you can choose if you want the dataset with a higher variety of spelling in Low German or the more uniform dataset.
 
 # %%
-# tatoabe dataset
-column_names_platt = ["id", "language", "nds"]
-column_names_deu = ["id", "language", "deu"]
-nds_sentences = pd.read_csv("https://llmm.webo.family/index.php/s/GXYbcE2TZk3AZrF/download", sep= "\t", header = None, names=column_names_platt)
-deu_sentences = pd.read_csv("https://llmm.webo.family/index.php/s/5wFFEzG9TE7XXbM/download", sep= "\t", header = None, names=column_names_deu)
-link_sentences = pd.read_csv("https://llmm.webo.family/index.php/s/2ed6bm35GY6ktTo/download", sep= "\t", header = None, names=["origin","translation"])
 
-tatoabe_raw = link_sentences.merge(deu_sentences
-                     , left_on = "origin"
-                     , right_on = "id").merge(nds_sentences
-                                              , left_on="translation", right_on="id")
-tatoabe_raw = tatoabe_raw[["deu","nds"]]
-tatoabe_raw = tatoabe_raw.drop(tatoabe_raw[tatoabe_raw["nds"].str.contains('\(frr')].index)
-# %%
-# preprocessing_data
-
-# take only short sentences
-
-def get_length(df):
-    df_output = df.copy()
-    df_output.nds = df_output.nds.str.split(r"[\s.,;:?!-\"\']+")
-    df_output.deu = df_output.deu.str.split(r"[\s.,;:?!-\"\']+")
-    return df_output.applymap(len)
-
-def get_range(df, start, end):
-    df_length = get_length(df)
-    df_length = df_length[df_length.nds.ge(start) & df_length.nds.le(end)]
-    df_length = df_length[df_length.deu.ge(start) & df_length.deu.le(end)]
-
-    return df.loc[df_length.index,:]
-
-# replace "ik" with "ick"
-def replace_ik(df):    
-    print("Replacements of 'ick' to 'ik': ",df.nds.str.count(r"(I|i)ck").sum())
-    df.nds = df.nds.str.replace(r"(I|i)ck", r"\1k")
-
-# replace us with uns
-def replace_uns(df):
-    print("Replacements of 'us' to 'uns'", df.nds.str.count("\s(U|u)s\s").sum())
-    df.nds = df.nds.str.replace(r"\s(U|u)s\s", r"\1ns")
-
-# "sch" before a consonant will be replaced with s 
-def replace_s(df):
-    print("Replacements of 'sch' to 's'",df.nds.str.count(r"\s(S|s)ch[lmknbwv][a-zäöü]*").sum())
-    df.nds = df.nds.str.replace(r"((S|s)ch)([lmknbwvptb])", r"\2\3")
-    
-# in english the enumeration is for example 2nd, 5th, 7th, ...
-# In german it is common to set a point after the number: 2., 5., 7.,
-# the wikipedia dataset uses points to identify sentences, but shortens therefore when enumeration is used.
-# these half sentences mostly doesn't make sense, so they will be dropped.
-def delete_wrong_enumeration(df):
-    
-    len_before = len(df)
-    drop_index = df[df.nds.str.contains("\d\.") | df.deu.str.contains("\d\.")].index
-    df.drop(index=drop_index, inplace = True)
-    print("Deleted wrong enumerations: ", len_before - len(df))
-
-def regex_all(df):
-    replace_ik(df)
-    replace_uns(df)
-    replace_s(df)
-# %%
-def replace(df, word, correction):
-    count = df.nds.str.count(rf"\b{word}\b").sum()
-    print("Replacements of " , word , "to ", correction)
-    print("Number of replacements: ", count)
-    df.nds = df.nds.str.replace(rf"\b{word}\b", correction, case = True)
-    return count
-
-def dict_correction(df):
-    # load in replacement-list for more common spelling
-    dict_hansen = pd.read_csv("https://llmm.webo.family/index.php/s/cxzTH2FcMgn3Fre/download", index_col = 0, sep=";")
-    dict_hansen.dropna(inplace=True)
-    dict_hansen = dict_hansen[dict_hansen["count"] > 0][["word","replaced_by"]]
-    dict_hansen.reset_index(drop=True,inplace=True)
-
-    ignore_str = "weer ween weern weerst ween  weer ween weren ween hebben harr hatt harrst hatt harr hatt harrn hatt warrn wöör worrn wöörst worrn wöör worrn wörrn worrn doon harr doon harrst doon harr doon harrn doon"
-    ignore_str = ignore_str + "bün heff du büst hest  hett sünd hebbt warrn warr warrst warrt warrt doon do deist deit doot"
-
-    replacements = pd.DataFrame(np.nan, index=np.arange(0,len(dict_hansen)), columns=['word', 'replaced_by', 'count'])
-
-
-    total_count = 0
-    idx_df = 0
-    for i in dict_hansen.index:
-        correction = dict_hansen.loc[i,"replaced_by"]
-        word = dict_hansen.loc[i,"word"]
-        if word not in ignore_str:
-            count = replace(df, word, correction)
-            total_count += count
-            print("Total replacements: ",total_count)
-            print("--------------------------------")
-            replacements.loc[idx_df,:] = [word, correction,count]
-            idx_df += 1
-    print("Total number of replacements: ", replacements["count"].sum())    
-    return replacements
-
-
-
-# %%
-wiki_df = get_range(wiki_raw, 1, 25)
-tatoabe_df = get_range(tatoabe_raw, 1, 25)
-
-regex_all(wiki_df)
-regex_all(tatoabe_df)
-
-delete_wrong_enumeration(wiki_df)
-
-replaced_stats_wiki = dict_correction(wiki_df)
-replaced_stats_tatoabe = dict_correction(tatoabe_df)
-replaced_stats_wiki.head(5)
-# %%
-# making one continous index through the whole dataset
-tatoabe_df.reset_index(drop=True, inplace = True)
-index_range_wiki = np.arange(len(tatoabe_df),len(wiki_df) + len(tatoabe_df))
-wiki_df.set_index(index_range_wiki, inplace = True)
-
+tatoeba_df = pd.read_csv("preprocessed_data/tatoeba/tatoeba_dataset_cleaned_spelling.csv", index_col = 0)
+wiki_df = pd.read_csv("preprocessed_data/fb-wiki/wiki_dataset_cleaned_spelling.csv", index_col = 0)
 
 
 
 #%%
 # loading seperate test set and delete it from dataset
-path = "data/"
+timestr = time.strftime("%Y%m%d-%H%M%S")
+path = "data_selection/" + timestr + "self_learning_preprocessed/"
 
         # Create target Directory
 try:       
@@ -939,22 +810,20 @@ except FileExistsError:
     print("Directory " , path ,  " already exists") 
 
 
-# !!!!!! We can take only this dataset because the above steps are exactly the same as it was for creating this test dataset
-# If you choose another threshold for the Wikipedia dataset you have to create a new representative test-dataset with the right indices
-# or delete the test data by comparing the sentences
-
+# As already prepared in the preprocessing_data notebook, we load in our test_data
 # in round seven we had in a previous run more or less an equal test set
-# means ca. 50% of the test set are from Tatoabe and the other 50% from Wikipedia
-test_df = pd.read_csv("https://llmm.webo.family/index.php/s/c4jHWQYCreKWJGQ/download", index_col=0)
+# means ca. 50% of the test set are from tatoeba and the other 50% from Wikipedia
+test_df = pd.read_csv("preprocessed_data/preprocessed_test_data.csv", index_col=0)
 
-replaced_stats_test = dict_correction(test_df)
+# looks a bit complicated but this way we get the right index of the test-data
+# independent from the former index
+delete_from_tatoeba = tatoeba_df.reset_index().merge(test_df, on = ["deu","nds"]).set_index("index").index
+delete_from_wiki = wiki_df.reset_index().merge(test_df, on = ["deu","nds"]).set_index("index").index
 
-test_tatoabe = [idx for idx in test_df.index.tolist() if idx <= len(tatoabe_df)]
-test_wiki = [idx for idx in test_df.index.tolist() if idx > len(tatoabe_df)]
-print("Dropping test entries from Tatoabe: ", len(test_tatoabe))
-print("Dropping test entries from Wikipedia: ", len(test_wiki))
-tatoabe_df.drop(test_tatoabe, inplace=True)
-wiki_df.drop(test_wiki, inplace=True)
+print("Dropping test entries from tatoeba: ", len(delete_from_tatoeba))
+print("Dropping test entries from Wikipedia: ", len(delete_from_wiki))
+tatoeba_df.drop(delete_from_tatoeba, inplace=True)
+wiki_df.drop(delete_from_wiki, inplace=True)
 
 test_path = path + "test_data.csv"
 test_df.to_csv(test_path)
@@ -965,12 +834,12 @@ test_df.to_csv(test_path)
 
 test_string = test_df.sample(1, random_state = SEED).nds.tolist()[0]
 print(test_df.sample(1, random_state = SEED))
-print(tatoabe_df[tatoabe_df.nds.str.contains(test_string)])
+print(tatoeba_df[tatoeba_df.nds.str.contains(test_string)])
 print(wiki_df[wiki_df.nds.str.contains(test_string)])
 
 test_string = test_df.sample(1, random_state = 42).nds.tolist()[0]
 print(test_df.sample(1, random_state = 42))
-print(tatoabe_df[tatoabe_df.nds.str.contains(test_string)])
+print(tatoeba_df[tatoeba_df.nds.str.contains(test_string)])
 print(wiki_df[wiki_df.nds.str.contains(test_string)])
 
 #%%
@@ -980,8 +849,8 @@ runs = 14
 
 path_round = path + "round_"
 
-# the first round is completed with the tatoabe dataset
-save_train_test_split(tatoabe_df, path_round + str(0) + "/")
+# the first round is completed with the tatoeba dataset
+save_train_test_split(tatoeba_df, path_round + str(0) + "/")
 
 
 
@@ -1085,7 +954,7 @@ for i in range(runs):
     
     start_index = wiki_df.index[0]
     # if the calculated size exceeds the wiki_df, we take the full remaining dataframe
-    if wiki_df.index[-1] - len(tatoabe_df) > residual_size:
+    if wiki_df.index[-1] - len(tatoeba_df) > residual_size:
       end_index = wiki_df.index[residual_size]
     else:
       end_index = wiki_df.index[-1]
@@ -1166,35 +1035,11 @@ for i in range(runs):
 
 
 
-# %% [markdown]
-# ## Inference
-# 
-# Now we can can translations from our model with the `translate_sentence` function below.
-# 
-# The steps taken are:
-# - tokenize the source sentence if it has not been tokenized (is a string)
-# - append the `<sos>` and `<eos>` tokens
-# - numericalize the source sentence
-# - convert it to a tensor and add a batch dimension
-# - create the source sentence mask
-# - feed the source sentence and mask into the encoder
-# - create a list to hold the output sentence, initialized with an `<sos>` token
-# - while we have not hit a maximum length
-#   - convert the current output sentence prediction into a tensor with a batch dimension
-#   - create a target sentence mask
-#   - place the current output, encoder output and both masks into the decoder
-#   - get next output token prediction from decoder along with attention
-#   - add prediction to current output sentence prediction
-#   - break if the prediction was an `<eos>` token
-# - convert the output sentence from indexes to tokens
-# - return the output sentence (with the `<sos>` token removed) and the attention from the last layer
-
 # %%
 
 
 # %% [markdown]
-# We'll now define a function that displays the attention over the source sentence for each step of the decoding. As this model has 8 heads our model we can view the attention for each of the heads.
-
+# for quick checking if the model is ok, we can try out some sample sentences
 # %%
 def display_attention(sentence, translation, attention, n_heads = 8, n_rows = 4, n_cols = 2):
     
@@ -1250,10 +1095,6 @@ print(f'predicted trg = {translation}')
 display_attention(src, translation, attention)
 
 
-
-
-# %% [markdown]
-# We get a BLEU score of 23.97, which beats the xxx of the convolutional sequence-to-sequence model and xxx of the attention based RNN model. All this whilst having the least amount of parameters and the fastest training time!
 
 # %%
 bleu_score = calculate_bleu(test_data, SRC, TRG, model, device)
