@@ -2,10 +2,13 @@
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %% [markdown]
-# ## Preparing the Data
-# 
-# As always, let's import all the required modules and set the random seeds for reproducability.
+# # Autodiactic Dataselection Model
 
+# As introduced in the data_preprocessing notebook, we have a lot of wrong aligned sentences in the wikipedia-dataset.
+# Goal of this notebook is to clean the wrong sentences as much as possible and create a good databasis for future models.
+
+# We will work with PyTorch and Torchtext. The basis construction of the model is taken from [Bent Revett](https://github.com/bentrevett/pytorch-seq2seq) who builded a NMT-Transformer Seq2Seq similar to the paper [Attention Is All You Need](https://arxiv.org/abs/1706.03762).
+# This paper from Google marks the change in State-of-the-Art models in machine translation from RNN and CNN's to attention-transformer models.
 # %%
 import torch
 import torch.nn as nn
@@ -31,6 +34,9 @@ import re
 import math
 import time
 
+# %% [markdown]
+
+# # Seed defintion for reproducable results
 
 # %%
 SEED = 1234
@@ -41,14 +47,18 @@ torch.manual_seed(SEED)
 torch.cuda.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
+# lets define already our device and make sure to run on gpu if possible
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 # %% [markdown]
-# We'll then create our tokenizers as before.
+# We use the same tokenizer as in the data-preprocessing line
+
+
 
 # %%
 spacy_de = spacy.load('de')
 
-
-# %%
 def tokenize_de(text):
     """
     Tokenizes German text from a string into a list of strings (tokens)
@@ -60,17 +70,15 @@ def tokenize_nds(text):
     """
     Tokenizes Low German text from a string into a list of strings (tokens)
     """
-    text = re.sub(r"([.,\"\-;*:%?!&#])", r" \1", text)
+    text = re.sub(r"([.,\"\-;*:\(\)%?!&#])", r" \1", text)
     text = re.split(r"[\s]", text)
     text = [a for a in text if len(a)>0]
     return text
 
 # %% [markdown]
-# Our fields are the same as the previous notebook. The model expects data to be fed in with the batch dimension first, so we use `batch_first = True`. 
-
-
-
-
+#  In each round we have new training and validation data. We need a function which creates for each round new fields and bucket iterators. With the fields we create in each round a new vocabulary.
+# We set the min frequency in the vocabulary to 1. We have a lot of words which appear only once as we saw in the data preprocessing step. If we would set it to two, we probably miss in most sentences the meaning.
+# Moreover we set the batch-size to 64 as it is better to calculate.
 # %%
 # loading in the data into torchtext datasets
 def load_train_test_data(path):
@@ -107,7 +115,9 @@ def load_train_test_data(path):
     return SRC, TRG, train_iterator, valid_iterator
 
 
+# %% [markdown]
 
+# From here on we define the classes according to the tutorial.
 # %%
 class Encoder(nn.Module):
     def __init__(self, 
@@ -418,11 +428,6 @@ class DecoderLayer(nn.Module):
         
         return trg, attention
 
-# %% [markdown]
-# ### Seq2Seq
-# 
-
-# %%
 class Seq2Seq(nn.Module):
     def __init__(self, 
                  encoder, 
@@ -491,9 +496,8 @@ class Seq2Seq(nn.Module):
         return output, attention
 
 # %% [markdown]
-# ## Training the Seq2Seq Model
-# 
-# We can now define our encoder and decoders. This model is significantly smaller than Transformers used in research today, but is able to be run on a single GPU quickly.
+# For each round we stay with the same model. Still we need to adapt the input and output dimensions as we have different vocabularies in each round.
+# Therefore we build our encoder and decoder each round from scratch.
 
 # %%
 def instantiate_objects(SRC,TRG):
@@ -526,12 +530,8 @@ def instantiate_objects(SRC,TRG):
                 device)
     return enc, dec
 
-# %% [markdown]
-# Then, use them to define our whole sequence-to-sequence encapsulating model.
 
 
-# %% [markdown]
-# We can check the number of parameters, noticing it is significantly less than the 37M for the convolutional sequence-to-sequence model.
 
 # %%
 def count_parameters(model):
@@ -541,25 +541,17 @@ def count_parameters(model):
 
 
 # %%
+# function to initalize the weights of our net
 def initialize_weights(m):
     if hasattr(m, 'weight') and m.weight.dim() > 1:
         nn.init.xavier_uniform_(m.weight.data)
 
 
-# %% [markdown]
-# The optimizer used in the original Transformer paper uses Adam with a learning rate that has a "warm-up" and then a "cool-down" period. BERT and other Transformer models use Adam with a fixed learning rate, so we will implement that. Check [this](http://nlp.seas.harvard.edu/2018/04/03/attention.html#optimizer) link for more details about the original Transformer's learning rate schedule.
-# 
-# Note that the learning rate needs to be lower than the default used by Adam or else learning is unstable.
-
 # %%
 
-# %% [markdown]
-# Next, we define our loss function, making sure to ignore losses calculated over `<pad>` tokens.
-
-# %%
 
 # %% [markdown]
-
+# training and evaluation is exactly as proposed from Bent.
 # %%
 def train(model, iterator, optimizer, criterion, clip):
     
@@ -598,9 +590,6 @@ def train(model, iterator, optimizer, criterion, clip):
         epoch_loss += loss.item()
         
     return epoch_loss / len(iterator)
-
-# %% [markdown]
-# The evaluation loop is the same as the training loop, just without the gradient calculations and parameter updates.
 
 # %%
 def evaluate(model, iterator, criterion):
@@ -645,8 +634,12 @@ def epoch_time(start_time, end_time):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
     return elapsed_mins, elapsed_secs
 
+
+# %% [markdown]
+# Now we define a translation function and a function for calculating the BLEU-Score.
+# Different than in the proposal from Bent we use the Bleu Score from NTLK package so it runs without problems in Colab. 
+
 # %%
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
     
@@ -712,6 +705,10 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     
     return trg_tokens[1:], attention
 
+# %% [markdown]
+
+# In each round we create new training data. We could store just the indices, but as it is easier to load a text file into TorchText than making a workaround for a dataframe, we save it.
+# Moreover it is easier to share and get the data of only one round later.
 
 # %%
 # saving the first train_test_split
@@ -748,8 +745,10 @@ def read_train_test_split(path):
 def save_residual_data(df, path):
     df.to_csv(path + "residuals.tsv", sep="\t")
 
+# %% [markdown]
 
-
+# The idea is to evaluate the data which is not in the train-dataset yet. For that we need to store the loss of every sentence pair and return it.
+# %%
 # calculate residual_loss
 def evaluate_residual(model, iterator, criterion):
     
@@ -827,6 +826,7 @@ tatoabe_raw = link_sentences.merge(deu_sentences
                                               , left_on="translation", right_on="id")
 tatoabe_raw = tatoabe_raw[["deu","nds"]]
 tatoabe_raw = tatoabe_raw.drop(tatoabe_raw[tatoabe_raw["nds"].str.contains('\(frr')].index)
+# %%
 # preprocessing_data
 
 # take only short sentences
@@ -874,7 +874,7 @@ def regex_all(df):
     replace_ik(df)
     replace_uns(df)
     replace_s(df)
-
+# %%
 def replace(df, word, correction):
     count = df.nds.str.count(rf"\b{word}\b").sum()
     print("Replacements of " , word , "to ", correction)
@@ -884,7 +884,7 @@ def replace(df, word, correction):
 
 def dict_correction(df):
     # load in replacement-list for more common spelling
-    dict_hansen = pd.read_csv("https://llmm.webo.family/index.php/s/c4jHWQYCreKWJGQ/download", index_col = 0, sep=";")
+    dict_hansen = pd.read_csv("https://llmm.webo.family/index.php/s/cxzTH2FcMgn3Fre/download", index_col = 0, sep=";")
     dict_hansen.dropna(inplace=True)
     dict_hansen = dict_hansen[dict_hansen["count"] > 0][["word","replaced_by"]]
     dict_hansen.reset_index(drop=True,inplace=True)
@@ -951,7 +951,7 @@ except FileExistsError:
 
 # in round seven we had in a previous run more or less an equal test set
 # means ca. 50% of the test set are from Tatoabe and the other 50% from Wikipedia
-test_df = pd.read_csv("LINK", index_col=0)
+test_df = pd.read_csv("https://llmm.webo.family/index.php/s/c4jHWQYCreKWJGQ/download", index_col=0)
 
 replaced_stats_test = dict_correction(test_df)
 
@@ -965,12 +965,24 @@ wiki_df.drop(test_wiki, inplace=True)
 test_path = path + "test_data.csv"
 test_df.to_csv(test_path)
 
+#%%
+# Per chance I got a sample that is in Low German two times. Once in the train data and once in the test-data but with different German sentences
+# but deleting worked as other examples prooved. 
 
+test_string = test_df.sample(1, random_state = SEED).nds.tolist()[0]
+print(test_df.sample(1, random_state = SEED))
+print(tatoabe_df[tatoabe_df.nds.str.contains(test_string)])
+print(wiki_df[wiki_df.nds.str.contains(test_string)])
+
+test_string = test_df.sample(1, random_state = 42).nds.tolist()[0]
+print(test_df.sample(1, random_state = 42))
+print(tatoabe_df[tatoabe_df.nds.str.contains(test_string)])
+print(wiki_df[wiki_df.nds.str.contains(test_string)])
 
 #%%
 # creating data for the basis round
 
-runs = 12
+runs = 14
 
 path_round = path + "round_"
 
@@ -995,7 +1007,7 @@ include_bleu = True
 
 residual_loss_before = float("Inf")
 
-wiki_df.index[500]
+
 
 # %%
 
@@ -1038,7 +1050,7 @@ for i in range(runs):
 
 
 
-    N_EPOCHS = 5 + int(i/2)
+    N_EPOCHS = 6
 
     best_valid_loss = float('inf')
 
