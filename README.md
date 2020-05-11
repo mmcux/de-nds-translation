@@ -34,6 +34,7 @@ If you have any Low German data which could be used for improving the translatio
 
 Beside that I have found two datasets, [Tatoeba](https://tatoeba.org/eng/) and [WikiMatrix](https://github.com/facebookresearch/LASER/tree/master/tasks/WikiMatrix), which fulfil two aspects, which were crucial for starting: Digital available and aligned sentences in German and Low German like this one:
 
+|    German                              |    Low German                    |
 | ---------------------------------------|----------------------------------|
 |    Er hat mich lange warten lassen.    |    He hett mi lang töven laten.  |
 |    Sie wollen reich werden.            |    Se wüllt riek warrn.          |
