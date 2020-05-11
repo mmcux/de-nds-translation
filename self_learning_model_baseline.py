@@ -860,7 +860,6 @@ loss_summary = pd.DataFrame(np.zeros([len(wiki_df),runs]), index = wiki_df.index
 
 
 round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_secs", "test_loss",
-                                       "residual_loss","residual_mins","residual_secs","quantile",
                                        "test_bleu", "total_samples"])
 # %%
 
@@ -954,48 +953,23 @@ for i in range(runs):
     
     start_index = wiki_df.index[0]
     # if the calculated size exceeds the wiki_df, we take the full remaining dataframe
-    if wiki_df.index[-1] - len(tatoeba_df) > residual_size:
+    if len(wiki_df) > residual_size:
       end_index = wiki_df.index[residual_size]
+      sample_size = int(0.25*residual_size)
     else:
       end_index = wiki_df.index[-1]
+      sample_size = int(len(wiki_df) * 0.25)
     residual_df = wiki_df.loc[start_index:end_index,:].copy()
-    residual_df.to_csv(path_iter + "residuals.tsv", sep="\t")
 
-    # calculating the error for the data which was not included in the model & testing
-    residual_pairs = TabularDataset(path=path_iter + "residuals.tsv", format= "tsv", skip_header = True
-                                , fields = [('id', None),("src", SRC),("trg", TRG)])
-    debug_text_residual_src = vars(residual_pairs.examples[8])['src']
-    debug_text_residual_trg = vars(residual_pairs.examples[8])['trg']
-    print("Debug Residual Text Source: ", debug_text_residual_src)
-    print("Debug Residual Text Target: ", debug_text_residual_trg)
-
-
-    residual_iterator = BucketIterator(residual_pairs, batch_size = 1, device = device
-                                   , shuffle = False , sort_within_batch=False , repeat = False)
-
-    start_time = time.time()
+    # for the baseline model we don't need to calculate residuals
+    # we pick randomly a subset of 25 % from our new dataset and include them into our training data
     
-    residual_loss , residual_batch_loss = evaluate_residual(model, residual_iterator, criterion)
+    # calculating the error for the data which was not included in the model & testing
 
-    end_time = time.time()
-    residual_mins, residual_secs = epoch_time(start_time, end_time)
-    print("Residual loss total: ",residual_loss)
-    print(f"Residual Evaluation Time: {residual_mins}m {residual_secs}s" )
-    # appending the error to our data and select only the best 25%
-    #residual_df = pd.read_csv(path_iter + "residuals.tsv", sep="\t", index_col=0)
-    residual_df.loc[:,"loss"] = residual_batch_loss
+    new_train_data = residual_df.sample(sample_size, random_state = SEED)
+    print("New training data generated: ", sample_size)
 
-    #storing the loss in the loss summary at the right sentence index
-
-    loss_summary.iloc[:, i] = residual_df.loss
-    loss_summary.to_csv(path + "loss_summary.csv")
-
-    # calcualting the 25% quantile
-    quantile = residual_df.loss.quantile(0.25)
-    print("Quantile: ", quantile)
-
-    # appending the best 25% to our existing training dataset and split & save for next round
-    new_train_data = residual_df[residual_df.loss <= quantile][["deu","nds"]]
+    # appending the random 25% to our existing training dataset and split & save for next round
     old_train_data = read_train_test_split(path_iter)
     dataset = old_train_data.append(new_train_data)
 
@@ -1004,9 +978,6 @@ for i in range(runs):
     # shuffling for the next round is important, so the new dataset is integrated through the whole training process
     # it is done inside the below function before saving it
     save_train_test_split(dataset, new_path)
-
-    # save the new train-data for easy quality check
-    new_train_data.to_csv(new_path + "new_training_data.csv")
 
     # drop the new included train sentences from the wiki_df
     # so they are excluded for next rounds
@@ -1024,8 +995,7 @@ for i in range(runs):
 
 
     # saving stats
-    round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
-                    residual_mins,residual_secs,quantile, test_bleu, total_samples]
+    round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss, test_bleu, total_samples]
     round_stats.to_csv(path + "round_stats.csv")
 
 
