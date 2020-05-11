@@ -58,6 +58,40 @@ We train a model on the basis on the Tatoeba dataset where we can be sure that t
 
 
 
+# Future Work
+
+To Do's for the future
+
+## Algorithm
+
+* Better tokenizer for nds
+* Training with capitalized words
+* monolingual training -> translation into german with wiki-tatoeba model -> backtranslation into low german
+* Try model with more layers
+* Use other pre-trained model: e.g. [OpenNMT](https://opennmt.net/Models-py/)
+* Combine the output of multiple models (if possible)
+  * Evaluation-Model: Trained model only on monolingual data to evaluate which predicted sentence is best
+* k-fold cross-validation
+* Hyperparameter tuning
+  * Batch size to 128
+  * Learning Rate
+  * Dropout
+* better word correction / automatic input correction
+
+## Dataset
+
+* more data
+
+## App
+
+* user interface and logo
+  * create possibility to flag / correct false translations
+* create possibility for translating already existing sentences by community (more possible translations)
+* get web address (översetter.de / oeversetter.de / ...)
+* mobile friendly
+
+
+
 
 ```python
 
