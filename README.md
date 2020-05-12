@@ -4,7 +4,7 @@ Neural Machine Translation from German to the low-resource language Low German.
 ------
 
 This repo contains the workflow for creating the first specialized "German" - "Low German" translator [översetter.de](http://www.översetter.de/).
-
+<img src="https://llmm.webo.family/index.php/s/WBMKp4oBEsKSSeo/download" alt="Översetter" width="50"/>
 If you have suggestions for improvement and/or want to participate in another way, please don't hesitate to get in contact with me.
 
 ---
