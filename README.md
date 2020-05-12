@@ -10,6 +10,15 @@ This repo contains the workflow for creating the first specialized "German" - "L
 If you have suggestions for improvement and/or want to participate in another way, please don't hesitate to get in contact with me.
 
 ---
+# Quick Workflow-Overview
+
+1. Gathering and preprocessing data: [data_preprocessing.ipynb](https://github.com/mmcux/de-nds-translation/blob/master/data_preprocessing.ipynb)
+2. Data selection: [self_learning_model.py](https://github.com/mmcux/de-nds-translation/blob/master/self_learning_model.py)
+3. Final model for translating: [translation_model.py](https://github.com/mmcux/de-nds-translation/blob/master/translation_model.py)
+
+Parts of the projects can't be published due to only personal permission for using the data. Still, you should be able to run all with the uploaded content.
+
+---
 
 # Low German
 
@@ -46,16 +55,20 @@ Beside that I have found two datasets, [Tatoeba](https://tatoeba.org/eng/) and [
 
 In the notebook "data_preprocessing.ipynb" you can see how the datasets where preprocessed.
 
+You can download the Tatoeba tsv files from the [website](https://tatoeba.org/eng/downloads). The data is provided under the [CC BY 2.0 FR license](https://creativecommons.org/licenses/by/2.0/de/#).
+Facebook aligned through all languages of Wikipedia suitable sentences and published it on: https://github.com/facebookresearch/LASER/tree/master/tasks/WikiMatrix
+The corresponding paper was published from: Holger Schwenk, Vishrav Chaudhary, Shuo Sun, Hongyu Gong and Paco Guzman, [WikiMatrix: Mining 135M Parallel Sentences in 1620 Language Pairs from Wikipedia arXiv](https://arxiv.org/abs/1907.05791), July 11 2019. The data is provided under the Creative Commons Attribution-ShareAlike license.
+
 
 ## Selecting right sentences
 
 As there are many misalignments especially in the WikiMatrix dataset, you will find in self_learning_model.py an algorithm which selects the best sentences from the dataset.
 
-This is the main work in working with this low resource language. Here you will see that the algorithm performs better than a baseline model which sees exactly the same data and could be used for any other language where the WikiMatrix dataset contains many mismatches. The neural network itself is constructed by [Ben Trevett](https://github.com/bentrevett/pytorch-seq2seq) and adapted for our purpose.
+This is the main work in working with this low resource language. Here you will see that the algorithm performs better than a baseline model which sees exactly the same data and could be used for any other language where the WikiMatrix dataset contains many mismatches. The neural network basis construction is by [Ben Trevett](https://github.com/bentrevett/pytorch-seq2seq) and adapted for our purpose.
 
 We train a model on the basis on the Tatoeba dataset where we can be sure that the sentences contain the same conten. We select than from a subset of the WikiMatrix data the best sentences (the ones with the lowest loss). In the next round the training data contains these sentences and looks at another subset of WikiMatrix data and selects again the best sentences from this subset.
 
-![Self-selecting model](https://llmm.webo.family/index.php/s/ncTiyxP8mW9DB7s/download)
+![Self-selecting model](https://llmm.webo.family/index.php/s/PSyQy22gSAoYJeK/download)
 
 
 
