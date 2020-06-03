@@ -16,15 +16,13 @@ If you have suggestions for improvement and/or want to participate in another wa
 2. Data selection: [self_learning_model.py](https://github.com/mmcux/de-nds-translation/blob/master/self_learning_model.py)
 3. Final model for translating: [translation_model.py](https://github.com/mmcux/de-nds-translation/blob/master/translation_model.py)
 
-Parts of the projects can't be published due to only personal permission for using the data. Still, you should be able to run all with the uploaded content.
+Minor parts of the projects can't be published right now due to only personal permission for using the data. Still, you should be able to run all with the uploaded content.
 
 ---
 
 # Low German
 
-Low German is a language spoken in Northern Germany. Once the dominant language, it disappeared nowadays in daily usage and if spoken then mostly in old generations. It is listed as [endangered language](http://www.unesco.org/new/en/culture/themes/endangered-languages/atlas-of-languages-in-danger/).
-
-Low German has its own vocabulary and grammar which prevents a word by word translation from German to Low German.
+Low German is a language spoken in Northern Germany. Once the dominant language until the mid of 20th century, it disappeared nowadays in daily usage. Although statistics count 1-2 million Low German speakers, which might be relatively high compared to other low resource languages, [99.2% of the people under 20](http://www.ins-bremen.de/fileadmin/ins-bremen/user_upload/umfrage2016/broschuere-umfrage.pdf) can't speak Low German in Northern Germany. The language is dying rapidly and therefore it is listed as [endangered language by the UNESCO](http://www.unesco.org/new/en/culture/themes/endangered-languages/atlas-of-languages-in-danger/).
 
 With the help of Neural Machine Translation this project wants to support the community which is working every day to keep the language alive.
 
@@ -36,8 +34,10 @@ Photo by [Marian on Unsplash](https://unsplash.com/@minjax)
 
 # Low German as low resource language
 
-Although the total speaker number with 1-2 million speaker might be relatively high compared to other low resource languages, [99.2% of the people under 20](http://www.ins-bremen.de/fileadmin/ins-bremen/user_upload/umfrage2016/broschuere-umfrage.pdf) can't speak Low German in Northern Germany.
-As it is mainly present in very old generations, also the online resources of Low German are limited.
+
+As it is mainly present in very old generations, also the online resources of Low German are limited. Moreover Low German has its own vocabulary and grammar which prevents a word by word translation from German to Low German.
+Another characteristic of Low German is the wide variety of spelling. In each region you have a slightly different Low German with its own dialect and its own spelling. For the same Low German word you might find several writings. The online dictionairy from [Peter Hansen](http://niederdeutsche-literatur.de/) gives a good overview about the different spellings.
+
 
 ## Available data
 
@@ -59,18 +59,25 @@ You can download the Tatoeba tsv files from the [website](https://tatoeba.org/en
 Facebook aligned through all languages of Wikipedia suitable sentences and published it on: https://github.com/facebookresearch/LASER/tree/master/tasks/WikiMatrix
 The corresponding paper was published from: Holger Schwenk, Vishrav Chaudhary, Shuo Sun, Hongyu Gong and Paco Guzman, [WikiMatrix: Mining 135M Parallel Sentences in 1620 Language Pairs from Wikipedia arXiv](https://arxiv.org/abs/1907.05791), July 11 2019. The data is provided under the Creative Commons Attribution-ShareAlike license.
 
+As the sentences are written by volunteers from different regions, there is no common spelling within the sentences.
+With the personal permission of Peter Hansen (thank you very much), I scraped his [online dictionairy](http://niederdeutsche-literatur.de/) with different possible spellings and replaced it by his proposal. With this method I could replace around 5% of the words to get a more uniform spelling. You will find an abstracted version of this in the [data_preprocessing.ipynb](https://github.com/mmcux/de-nds-translation/blob/master/data_preprocessing.ipynb).
+
 
 ## Selecting right sentences
 
-As there are many misalignments especially in the WikiMatrix dataset, you will find in self_learning_model.py an algorithm which selects the best sentences from the dataset.
+The WikiMatrix dataset is built automatically and there was no quality control by a professional. The dataset includes misalignemnts even for sentences where Facebook Research was pretty sure that these sentences are aligned correctly. Therefore the main challenge for this dataset is to extract the right sentence pairs from the dataset.
+You will find in self_learning_model.py an algorithm based on a Transformer-Seq2Seq model which selects the best sentences from the dataset.
 
-This is the main work in working with this low resource language. Here you will see that the algorithm performs better than a baseline model which sees exactly the same data and could be used for any other language where the WikiMatrix dataset contains many mismatches. The neural network basis construction is by [Ben Trevett](https://github.com/bentrevett/pytorch-seq2seq) and adapted for our purpose.
+The neural network basis construction is by [Ben Trevett](https://github.com/bentrevett/pytorch-seq2seq) and adapted for our purpose.
 
-We train a model on the basis on the Tatoeba dataset where we can be sure that the sentences contain the same conten. We select than from a subset of the WikiMatrix data the best sentences (the ones with the lowest loss). In the next round the training data contains these sentences and looks at another subset of WikiMatrix data and selects again the best sentences from this subset.
+Main idea is to train a model on sentence pairs where we know that these are correct. After that we take sentence pairs with unknown quality (WikiMatrix dataset) and translate with our model the German sentence into an artificial Low German translation and calculate the error to the provided translation. Our model can already translate roughly, so the sentences with a low error probably contain somehow the same content even if the artifical translation is not correct. Or said the other way round: the sentences with a high error are significantly different to what the model learned before. This could have two reasons: The sentence pair could have the same content but on a higher level and our model is not good enough to translate this sentence OR we have a misalignment where the German and Low German sentence doesn't contain the same content.
+Therefore we select the sentences with the lowest error and include them into our training set.
+
+
 
 ![Self-selecting model](https://llmm.webo.family/index.php/s/PSyQy22gSAoYJeK/download)
 
-
+With this approach I was able to beat a random-pick baseline model which saw the same data fragments, but picked from these subsets random sentences and achieved better translation results. A more in depth analysis you will find in this [Google Presentation](https://docs.google.com/presentation/d/1-k97OhQeJvNb7LOp1YmvM_uFXjmrL8MxLcaKbGJlag4/edit?usp=sharing) or you just simply contact me for further questions.
 
 
 # Future Work
@@ -88,7 +95,6 @@ To Do's for the future
   * Evaluation-Model: Trained model only on monolingual data to evaluate which predicted sentence is best
 * k-fold cross-validation
 * Hyperparameter tuning
-  * Batch size to 128
   * Learning Rate
   * Dropout
 * better word correction / automatic input correction
@@ -100,14 +106,13 @@ To Do's for the future
 ## App
 
 * user interface and logo
-  * create possibility to flag / correct false translations
 * create possibility for translating already existing sentences by community (more possible translations)
-* get web address (översetter.de / oeversetter.de / ...)
 * mobile friendly
 
+# Licenses
+
+The code is licensed under the MIT License.
+
+The modified data (corrected spelling) will be uploaded soon under the [Creative Commons Attribution-ShareAlike license](https://creativecommons.org/licenses/by-sa/2.5/).
 
 
-
-```python
-
-```
