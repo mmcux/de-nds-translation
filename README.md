@@ -16,6 +16,8 @@ If you have suggestions for improvement and/or want to participate in another wa
 2. Data selection: [self_learning_model.py](https://github.com/mmcux/de-nds-translation/blob/master/self_learning_model.py)
 3. Final model for translating: [translation_model.py](https://github.com/mmcux/de-nds-translation/blob/master/translation_model.py)
 
+<img src="https://llmm.webo.family/index.php/s/c2sDqJCoR664bFr/download" alt="workflow" width="480"/>
+
 Minor parts of the projects can't be published right now due to only personal permission for using the data. Still, you should be able to run all with the uploaded content.
 
 ---
@@ -114,5 +116,14 @@ To Do's for the future
 The code is licensed under the MIT License.
 
 The modified data (corrected spelling) will be uploaded soon under the [Creative Commons Attribution-ShareAlike license](https://creativecommons.org/licenses/by-sa/2.5/).
+
+
+# Changelog
+
+* 14.04.2020: Start of the project
+* 10.05.2020: Publishing first prototype online
+* 13.05.2020: Upper - & lowercase prediction together with model improvements
+* 02.06.2020: Community feedback and correction function
+
 
 
