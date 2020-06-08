@@ -117,13 +117,18 @@ The code is licensed under the MIT License.
 
 The modified data (corrected spelling) will be uploaded soon under the [Creative Commons Attribution-ShareAlike license](https://creativecommons.org/licenses/by-sa/2.5/).
 
+# Supporters
+
+Special thanks to [niowniow](https://github.com/niowniow) for consulting.
 
 # Changelog
 
 * 14.04.2020: Start of the project
-* 10.05.2020: Publishing first prototype online
-* 13.05.2020: Upper - & lowercase prediction together with model improvements
+* 10.05.2020: Prediction-Model 0.1 Release: Publishing first prototype online
+* 13.05.2020: Prediction-Model 0.2 Release: Upper - & lowercase prediction together with model improvements
 * 02.06.2020: Community feedback and correction function
+* 07.06.2020: Better infrastructure for web application
+* 07.06.2020: Prediction-Model 0.3 Release: additional monolingual training
 
 
 
