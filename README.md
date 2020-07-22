@@ -119,7 +119,9 @@ The modified data (corrected spelling) will be uploaded soon under the [Creative
 
 # Supporters
 
-Special thanks to [niowniow](https://github.com/niowniow) for consulting.
+Special thanks for consulting and general support to:
+[niowniow](https://github.com/niowniow)
+[Sven Wildermann](https://github.com/swildermann)
 
 # Changelog
 
@@ -129,6 +131,8 @@ Special thanks to [niowniow](https://github.com/niowniow) for consulting.
 * 02.06.2020: Community feedback and correction function
 * 07.06.2020: Better infrastructure for web application
 * 07.06.2020: Prediction-Model 0.3 Release: additional monolingual training
+* 10.07.2020: Autocorrection of High-German sentence before translating
+* 10.07.2020: Prediction-Model 0.5 Release: Sentencepiece tokenizer & Transfer learning with German-English pretrained model
 
 
 
