@@ -552,7 +552,8 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
 
         if pred_token == trg_field.eos_token:
             break
-    
+    print(trg_indexes)
+
     trg_tokens = sp_nds.decode(trg_indexes)
     
     return trg_tokens
@@ -622,6 +623,7 @@ if ai_comparison:
 sentence = "Ich habe während der Mittagspause ein wenig geschlafen, weil ich so müde war."
 sentence = "Nachdem wir die Erdbeeren gesammelt haben, backen wir einen leckeren Kuchen."
 sentence = "Das Wetter wird übermorgen sehr schön."
+sentence = "schlafen"
 translate_to_platt(sentence)
 
 # %%

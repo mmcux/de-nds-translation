@@ -186,7 +186,7 @@ def tokenize_nds(text):
 
 #%%
 # add monolingual data only here as it would else included into sentencepiece model
-mono_data = False
+mono_data = True
 if mono_data:
     train = train.append(mono).sample(frac=1).reset_index(drop=True)
     print(train.head(5))
@@ -808,7 +808,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
         tokens = [token for token in sentence]
 
 
-#    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
+    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
         
 #    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
     src_indexes = tokens
@@ -836,7 +836,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
 
         if pred_token == trg_field.eos_token:
             break
-    
+    print(trg_indexes)
     trg_tokens = sp_nds.decode(trg_indexes)
     
     return trg_tokens, attention
