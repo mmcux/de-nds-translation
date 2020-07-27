@@ -153,12 +153,14 @@ sp_deu = load_sp_model("spm_deu.model")
 sp_nds = load_sp_model("spm_nds.model")
 
 sp_deu.set_encode_extra_options('bos:eos')
-pad_index = sp_deu.piece_to_id("<pad>")
+deu_pad_index = sp_deu.piece_to_id("<pad>")
+sp_nds.set_encode_extra_options('bos:eos')
+nds_pad_index = sp_deu.piece_to_id("<pad>")
 
 
 # %%
 sp_deu.pad_id()
-
+deu_pad_index
 # %%
 
 sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
@@ -193,14 +195,14 @@ def tokenize_nds(text):
 
 
 
-SRC = Field(use_vocab = False, tokenize = tokenize_de,
-            init_token = sp_deu.bos_id(), 
-            eos_token = sp_deu.eos_id(),
+SRC = Field(use_vocab = False, tokenize = sp_deu.encode,
+            #init_token = sp_deu.bos_id(), 
+            #eos_token = sp_deu.eos_id(),
             pad_token = sp_deu.pad_id())
 
-TRG = Field(use_vocab = False, tokenize = tokenize_nds,
-            init_token = sp_nds.bos_id(), 
-            eos_token = sp_nds.eos_id(),
+TRG = Field(use_vocab = False, tokenize = sp_nds.encode,
+            #init_token = sp_nds.bos_id(), 
+            #eos_token = sp_nds.eos_id(),
             pad_token = sp_nds.pad_id())
 
 train_data = TabularDataset(path=train_path, format= "csv", skip_header = True
@@ -692,8 +694,7 @@ def train(model, iterator, optimizer, criterion, clip):
         trg = batch.trg
         
         optimizer.zero_grad()
-        print(trg[:,:-1])
-        print(trg[:])
+
         output, _ = model(src, trg[:,:-1])
                 
         #output = [batch size, trg len - 1, output dim]
