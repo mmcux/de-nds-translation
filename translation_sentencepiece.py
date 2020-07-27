@@ -64,7 +64,7 @@ run = 9
 
 timestr = time.strftime("%Y%m%d-%H%M%S")
 base_path = Path("model/sentencepiece/")
-saving_path =  base_path / timestr / "english_with_sp/"
+saving_path =  base_path / timestr / "english_pretraining_with_sp/"
 # saving the model and results
 try:
     # Create target Directory
@@ -82,7 +82,7 @@ if local_data:
     path = Path("preprocessed_data/english_training/")
     #path = "preprocessed_data/dutch_training/"
     #path = "model/finetuned_after_pre_training/20200620-185343_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_DE_DE_/"
-    #path = Path("data_selection/20200723-165133/round_/8/")
+    path = Path("data_selection/20200723-165133/round_/8/")
     path_round = path / "round_"
     train_path = path / "train_data.csv"
     valid_path = path / "valid_data.csv"
