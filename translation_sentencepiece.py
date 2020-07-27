@@ -64,7 +64,7 @@ run = 9
 
 timestr = time.strftime("%Y%m%d-%H%M%S")
 base_path = Path("model/sentencepiece/")
-saving_path =  base_path / timestr / "_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_10k_" / "SENTENCEPIECE_10k_DE_NDS/"
+saving_path =  base_path / timestr / "english_with_sp/"
 # saving the model and results
 try:
     # Create target Directory
@@ -79,10 +79,10 @@ local_data = True
 
 if local_data:
     path = "preprocessed_data/tatoeba/"
-    path = "preprocessed_data/english_training/"
-    path = "preprocessed_data/dutch_training/"
-    path = "model/finetuned_after_pre_training/20200620-185343_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_DE_DE_/"
-    path = Path("data_selection/20200723-165133/round_/8/")
+    path = Path("preprocessed_data/english_training/")
+    #path = "preprocessed_data/dutch_training/"
+    #path = "model/finetuned_after_pre_training/20200620-185343_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_DE_DE_/"
+    #path = Path("data_selection/20200723-165133/round_/8/")
     path_round = path / "round_"
     train_path = path / "train_data.csv"
     valid_path = path / "valid_data.csv"
@@ -107,7 +107,7 @@ else:
 # %%
 
 # add additional data only for train set to see if it performs better
-additional_data = False
+additional_data = True
 if additional_data:
     train = pd.read_csv(train_path, index_col = 0)
     mono = pd.read_csv("preprocessed_data/monolingual.csv", index_col = 0)
@@ -120,28 +120,26 @@ if additional_data:
     train.to_csv(saving_path / "train_data.csv")
     train_path = saving_path / "train_data.csv"
     print(str(train_path))
-    valid = pd.read_csv(valid_path, index_col = 0)
-    print(valid.head(4))
+
 
 # %%
 vocab_size = 10000
 
 train = pd.read_csv(train_path)
+# create solo datasets for german and low german to prepare for training sentencepiece model
 deu_sentences = train.iloc[:,1]
 deu_sentences_path = saving_path /  "deu_train_sentences.csv"
 deu_sentences.to_csv(deu_sentences_path, index=False, header = False)
-#generate_sp_model(saving_path / 'deu_train_sentences.csv', vocab_size=vocab_size,  model_prefix='spm_deu')
 nds_sentences = train.iloc[:,2]
 nds_sentences_path = saving_path /  "nds_train_sentences.csv"
 nds_sentences.to_csv(nds_sentences_path, index=False, header = False)
-#generate_sp_model(saving_path / 'nds_train_sentences.csv'
-#                    , vocab_size=8000, model_prefix='spm_nds')
-# define that padding_idx is on 3
+
+# define that padding_idx is on 3 otherwise it wouldn't be defined
 def spm_args(data_path, model_prefix, vocab_size ):
     return ''.join(["--pad_id=3",' --input=', str(data_path)," --model_prefix=", model_prefix, " --vocab_size=",str(vocab_size)])
 # create input string and train sentencepiecemodel
-deu_spm_input = spm_args(deu_sentences_path, "spm_deu", vocab_size)
-nds_spm_input = spm_args(nds_sentences_path, "spm_nds", vocab_size)
+deu_spm_input = spm_args(deu_sentences_path, str(saving_path / "spm_deu"), vocab_size)
+nds_spm_input = spm_args(nds_sentences_path, str(saving_path / "spm_nds"), vocab_size)
 spm.SentencePieceTrainer.train(deu_spm_input)
 spm.SentencePieceTrainer.train(nds_spm_input)
 
@@ -149,8 +147,8 @@ spm.SentencePieceTrainer.train(nds_spm_input)
 
 #sp_deu = load_sp_model("preprocessed_data/sp_model/de.wiki.bpe.vs10000.model")
 #sp_nds = load_sp_model("preprocessed_data/sp_model/nds.wiki.bpe.vs10000.model")
-sp_deu = load_sp_model("spm_deu.model")
-sp_nds = load_sp_model("spm_nds.model")
+sp_deu = load_sp_model(str(saving_path / "spm_deu.model"))
+sp_nds = load_sp_model(str(saving_path / "spm_nds.model"))
 
 sp_deu.set_encode_extra_options('bos:eos')
 deu_pad_index = sp_deu.piece_to_id("<pad>")
@@ -161,6 +159,7 @@ nds_pad_index = sp_deu.piece_to_id("<pad>")
 # %%
 sp_deu.pad_id()
 deu_pad_index
+
 # %%
 
 sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
@@ -168,8 +167,6 @@ list_a = ["Komplizierte Wörter sind Baustelle.", "Morgen soll es regnen und üb
 print(list(sp_deu_tokens_generator(list_a)))
 sp_de_numericalize_generator = sentencepiece_numericalizer(sp_deu)
 sp_nds_numericalize_generator = sentencepiece_numericalizer(sp_nds)
-
-print(list(sp_numericalize_generator(list_a)))
 
 
 # %%
@@ -179,6 +176,7 @@ sp_nds_tokens_generator = sentencepiece_tokenizer(sp_nds)
 print(list(sp_de_numericalize_generator(["Ich bin ein Text."]))[0])
 
 list(sp_deu_tokens_generator(["Ich bin ein Text."]))[0]
+sp_deu.encode("Ich bin ein Text.")
 
 # %%
 def tokenize_de(text):
@@ -186,7 +184,14 @@ def tokenize_de(text):
 def tokenize_nds(text):
     return list(sp_nds_numericalize_generator([text]))[0]
 
-
+#%%
+# add monolingual data only here as it would else included into sentencepiece model
+mono_data = False
+if mono_data:
+    train = train.append(mono).sample(frac=1).reset_index(drop=True)
+    print(train.head(5))
+    train.to_csv(saving_path / "train_data.csv")
+    train_path = saving_path / "train_data.csv"    
 
 
 # %%
@@ -196,14 +201,18 @@ def tokenize_nds(text):
 
 
 SRC = Field(use_vocab = False, tokenize = sp_deu.encode,
-            #init_token = sp_deu.bos_id(), 
-            #eos_token = sp_deu.eos_id(),
-            pad_token = sp_deu.pad_id())
+            init_token = sp_deu.bos_id(), 
+            eos_token = sp_deu.eos_id(),
+            pad_token = sp_deu.pad_id(),
+            batch_first = True
+            )
 
 TRG = Field(use_vocab = False, tokenize = sp_nds.encode,
-            #init_token = sp_nds.bos_id(), 
-            #eos_token = sp_nds.eos_id(),
-            pad_token = sp_nds.pad_id())
+            init_token = sp_nds.bos_id(), 
+            eos_token = sp_nds.eos_id(),
+            pad_token = sp_nds.pad_id(),
+            batch_first = True
+            )
 
 train_data = TabularDataset(path=train_path, format= "csv", skip_header = True
                         , fields = [('id', None),("src", SRC),("trg", TRG)])
@@ -215,6 +224,7 @@ test_data = TabularDataset(path= test_path, format= "csv", skip_header = True
 
 # %%
 [SRC.pad_token]
+[SRC.init_token]
 
 # %% 
 BATCH_SIZE = 32
@@ -237,15 +247,21 @@ train_iterator, valid_iterator = BucketIterator.splits(
     sort_key = lambda x : len(x.src),
     device = device)
 
-#SRC.build_vocab(train_data, min_freq = 1)
-#TRG.build_vocab(train_data, min_freq = 1)
 
 torch.save(SRC, saving_path / "SRC.Field", pickle_module = dill)
 
 torch.save(TRG, saving_path / "TRG.Field", pickle_module = dill)
 
 # %%
-vars(test_data.examples[466])['src']
+# check if everything worked out with sentencepiece
+example_id = 234
+example_deu = vars(train_data.examples[example_id])['src']
+print(example_deu)
+print(sp_deu.decode(example_deu))
+example_nds = vars(train_data.examples[example_id])['trg']
+print(example_nds)
+print(sp_nds.decode(example_nds))
+len(sp_nds)
 
 # %%
 
@@ -692,9 +708,9 @@ def train(model, iterator, optimizer, criterion, clip):
         
         src = batch.src
         trg = batch.trg
-        
-        optimizer.zero_grad()
 
+        optimizer.zero_grad()
+        
         output, _ = model(src, trg[:,:-1])
                 
         #output = [batch size, trg len - 1, output dim]
@@ -775,10 +791,10 @@ def calculate_bleu(data, src_field, trg_field, model, device, max_len = 50):
         pred_trg, _ = translate_sentence(src, src_field, trg_field, model, device, max_len)
         
         #cut off <eos> token
-        pred_trg = pred_trg[:-1]
+        #pred_trg = pred_trg[:-1]
         
         pred_trgs.append(pred_trg)
-        trgs.append([trg])
+        trgs.append([sp_nds.decode(trg)])
         
     return bleu_score.corpus_bleu(trgs, pred_trgs)
 
@@ -787,15 +803,15 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     model.eval()
         
     if isinstance(sentence, str):
-        tokens = tokenize_de(sentence)
+        tokens = sp_deu.encode(sentence)
     else:
         tokens = [token for token in sentence]
 
 
-    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
+#    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
         
-    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
-
+#    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
+    src_indexes = tokens
     src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
     
     src_mask = model.make_src_mask(src_tensor)
@@ -803,7 +819,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     with torch.no_grad():
         enc_src = model.encoder(src_tensor, src_mask)
 
-    trg_indexes = [trg_field.vocab.stoi[trg_field.init_token]]
+    trg_indexes = [trg_field.init_token]
 
     for i in range(max_len):
 
@@ -818,12 +834,12 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
         
         trg_indexes.append(pred_token)
 
-        if pred_token == trg_field.vocab.stoi[trg_field.eos_token]:
+        if pred_token == trg_field.eos_token:
             break
     
-    trg_tokens = [trg_field.vocab.itos[i] for i in trg_indexes]
+    trg_tokens = sp_nds.decode(trg_indexes)
     
-    return trg_tokens[1:], attention
+    return trg_tokens, attention
 
 # %%
 
@@ -844,19 +860,21 @@ total_samples = (len(train_iterator) + len(valid_iterator))*BATCH_SIZE
 
 print("All data read in")
 
-preload_model = False
+preload_model = True
 if preload_model == False:
     enc , dec = instantiate_objects(SRC,TRG)
 
     SRC_PAD_IDX = SRC.pad_token
     TRG_PAD_IDX = TRG.pad_token
-    print(TRG_PAD_IDX)
+    print(type(TRG_PAD_IDX))
+    print(SRC_PAD_IDX)
     model = Seq2Seq(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device).to(device)
     # random weigths
     model.apply(initialize_weights)
 else:
     path_pretrained = "model/pre_training/20200623-132115_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_NLD_PRETRAINING_DE_EN/"
     path_pretrained = Path("model/pre_training/20200707-090432_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_DE_EN/")
+    path_pretrained = Path("model/pre_training/20200727-212428/english_with_sp/")
     #path_pretrained = "model/sentencepiece/20200707-111219_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_10k_DE_NDS/"
     #path_pretrained = "model/pre_training/20200708-124955_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_NL_10k_SENTENCEPIECE_10k_DE_NL/"
 
@@ -992,7 +1010,7 @@ print(f'predicted trg = {translation}')
 
 
 # %%
-display_attention(src, translation, attention)
+#display_attention(src, translation, attention)
 # %%
 
 """In this section you can enter a custom sentence and look at the predicted translation."""
@@ -1001,8 +1019,8 @@ custom_sentence = "Die Schranke ist geschlossen."
 
 translation, attention = translate_sentence(custom_sentence, SRC, TRG, model, device)
 print("In German: ", custom_sentence)
-print("In Low German: ", ''.join(translation[:-1]).replace('▁', ' '))
-
+#print("In Low German: ", ''.join(translation[:-1]).replace('▁', ' '))
+print("In Low German: ", translation)
 
 # %%
 
