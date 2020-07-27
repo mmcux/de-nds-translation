@@ -25,7 +25,7 @@ import dill
 import numpy as np
 import pandas as pd
 
-
+from pathlib import Path
 import os
 import random
 import re
@@ -45,6 +45,7 @@ import time
 
 SEED = 1234
 
+torch.cuda.set_device(0)
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -55,7 +56,6 @@ print("Runs on Cuda: ", torch.cuda.is_available())
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-
 # %%
 # creating data for the basis round
 # select the run which should be the basis
@@ -63,7 +63,8 @@ run = 9
 
 
 timestr = time.strftime("%Y%m%d-%H%M%S")
-saving_path =  "model/pre_training/" + timestr + "_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_10k_" + "SENTENCEPIECE_10k_DE_NDS_SCHNUTENPULLI/"
+base_path = Path("model/sentencepiece/")
+saving_path =  base_path / timestr / "_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_10k_" / "SENTENCEPIECE_10k_DE_NDS/"
 # saving the model and results
 try:
     # Create target Directory
@@ -81,10 +82,11 @@ if local_data:
     path = "preprocessed_data/english_training/"
     path = "preprocessed_data/dutch_training/"
     path = "model/finetuned_after_pre_training/20200620-185343_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_DE_DE_/"
-    path_round = path + "round_"
-    train_path = path + "train_data.csv"
-    valid_path = path + "valid_data.csv"
-    test_path = path  + "test_data.csv"
+    path = Path("data_selection/20200723-165133/round_/8/")
+    path_round = path / "round_"
+    train_path = path / "train_data.csv"
+    valid_path = path / "valid_data.csv"
+    test_path = path  / "test_data.csv"
 else:
     # your link here
     # the following links include SELF-LEARNING DATA in train and valid
@@ -95,12 +97,31 @@ else:
     train_csv = pd.read_csv(train, index_col = 0)
     valid_csv = pd.read_csv(valid, index_col = 0)
     test_csv = pd.read_csv(test, index_col = 0)
-    train_path = saving_path + "train_data.csv"
+    train_path = saving_path / "train_data.csv"
     train_csv.to_csv(train_path)
-    valid_path = saving_path + "valid_data.csv"
+    valid_path = saving_path / "valid_data.csv"
     valid_csv.to_csv(valid_path)
-    test_path = saving_path + "test_data.csv"
+    test_path = saving_path / "test_data.csv"
     test_csv.to_csv(test_path)
+
+# %%
+
+# add additional data only for train set to see if it performs better
+additional_data = True
+if additional_data:
+    train = pd.read_csv(train_path, index_col = 0)
+    mono = pd.read_csv("preprocessed_data/monolingual.csv", index_col = 0)
+    wordbook = pd.read_csv("preprocessed_data/hansen/wordbook.csv", index_col = 0)
+    wordbook = wordbook [["deu", "nds"]]
+    print(wordbook.head(3))
+    # right now only wordbook as GPU storage is too small for both
+    train = train.append(wordbook).sample(frac=1).reset_index(drop=True)
+    print(train.head(5))
+    train.to_csv(saving_path / "train_data.csv")
+    train_path = saving_path / "train_data.csv"
+    print(str(train_path))
+    valid = pd.read_csv(valid_path, index_col = 0)
+    print(valid.head(4))
 
 # %%
 vocab_size = 10000
@@ -194,9 +215,9 @@ train_iterator, valid_iterator = BucketIterator.splits(
 SRC.build_vocab(train_data, min_freq = 1)
 TRG.build_vocab(train_data, min_freq = 1)
 
-torch.save(SRC, saving_path + "SRC.Field", pickle_module = dill)
+torch.save(SRC, saving_path / "SRC.Field", pickle_module = dill)
 
-torch.save(TRG, saving_path + "TRG.Field", pickle_module = dill)
+torch.save(TRG, saving_path / "TRG.Field", pickle_module = dill)
 
 # %%
 
@@ -794,7 +815,7 @@ residual_loss_before = float("Inf")
 
 print("===================================================")
 print("Round: ", run)
-path_iter = saving_path + str(run) + "/"
+path_iter = saving_path
 # count how many samples we have int total
 total_samples = (len(train_iterator) + len(valid_iterator))*BATCH_SIZE
 
@@ -812,12 +833,12 @@ if preload_model == False:
     model.apply(initialize_weights)
 else:
     path_pretrained = "model/pre_training/20200623-132115_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_NLD_PRETRAINING_DE_EN/"
-    path_pretrained = "model/pre_training/20200707-090432_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_DE_EN/"
+    path_pretrained = Path("model/pre_training/20200707-090432_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_DE_EN/")
     #path_pretrained = "model/sentencepiece/20200707-111219_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_10k_DE_NDS/"
     #path_pretrained = "model/pre_training/20200708-124955_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_NL_10k_SENTENCEPIECE_10k_DE_NL/"
 
-    pre_SRC = torch.load(path_pretrained + "SRC.Field", pickle_module=dill)
-    pre_TRG = torch.load(path_pretrained + "TRG.Field", pickle_module=dill)
+    pre_SRC = torch.load(path_pretrained / "SRC.Field", pickle_module=dill)
+    pre_TRG = torch.load(path_pretrained / "TRG.Field", pickle_module=dill)
     enc , dec = instantiate_objects(SRC,TRG)
 
     SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
@@ -827,7 +848,7 @@ else:
     model.apply(initialize_weights)
     model_dict = model.state_dict()
     # loaded weights from pretrained model
-    pretrain_dict = torch.load(path_pretrained + 'model.pt')
+    pretrain_dict = torch.load(path_pretrained / 'model.pt')
     #Filter out unnecessary keys
     pretrain_dict = {k: v for k, v in pretrain_dict.items() if (k in model_dict and 'fc_out' not in k and 'tok_embedding' not in k)}
     model.load_state_dict(pretrain_dict, strict=False)
@@ -865,7 +886,7 @@ for epoch in range(N_EPOCHS):
     
     if valid_loss < best_valid_loss:
         best_valid_loss = valid_loss
-        torch.save(model.state_dict(), saving_path + 'model.pt')
+        torch.save(model.state_dict(), saving_path / 'model.pt')
     
     print(f'Epoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
@@ -873,7 +894,7 @@ for epoch in range(N_EPOCHS):
 
 
 
-model.load_state_dict(torch.load(saving_path + 'model.pt'))
+model.load_state_dict(torch.load(saving_path / 'model.pt'))
 
 test_loss = evaluate(model, test_iterator, criterion)
 
@@ -891,7 +912,7 @@ else:
 
 # saving stats
 round_stats.loc[run, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss, test_bleu, total_samples]
-round_stats.to_csv(saving_path + "round_stats.csv")
+round_stats.to_csv(saving_path / "round_stats.csv")
 
 #%%
 
