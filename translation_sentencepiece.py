@@ -16,7 +16,7 @@ import torchtext
 from torchtext.data import Field, BucketIterator,  TabularDataset
 from torchtext.data.functional import generate_sp_model, load_sp_model, sentencepiece_numericalizer, sentencepiece_tokenizer
 from nltk.translate import bleu_score
-
+import sentencepiece as spm
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -45,7 +45,7 @@ import time
 
 SEED = 1234
 
-torch.cuda.set_device(0)
+#torch.cuda.set_device(0)
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -107,7 +107,7 @@ else:
 # %%
 
 # add additional data only for train set to see if it performs better
-additional_data = True
+additional_data = False
 if additional_data:
     train = pd.read_csv(train_path, index_col = 0)
     mono = pd.read_csv("preprocessed_data/monolingual.csv", index_col = 0)
@@ -128,37 +128,61 @@ vocab_size = 10000
 
 train = pd.read_csv(train_path)
 deu_sentences = train.iloc[:,1]
-#deu_sentences.to_csv(saving_path +  "deu_train_sentences.csv", index=False, header = False)
-#generate_sp_model(saving_path + 'deu_train_sentences.csv', vocab_size=vocab_size, model_prefix='spm_deu')
+deu_sentences_path = saving_path /  "deu_train_sentences.csv"
+deu_sentences.to_csv(deu_sentences_path, index=False, header = False)
+#generate_sp_model(saving_path / 'deu_train_sentences.csv', vocab_size=vocab_size,  model_prefix='spm_deu')
 nds_sentences = train.iloc[:,2]
-#nds_sentences.to_csv(saving_path +  "nds_train_sentences.csv", index=False, header = False)
-#generate_sp_model(saving_path + 'nds_train_sentences.csv'
- #                   , vocab_size=8000, model_prefix='spm_nds')
+nds_sentences_path = saving_path /  "nds_train_sentences.csv"
+nds_sentences.to_csv(nds_sentences_path, index=False, header = False)
+#generate_sp_model(saving_path / 'nds_train_sentences.csv'
+#                    , vocab_size=8000, model_prefix='spm_nds')
+# define that padding_idx is on 3
+def spm_args(data_path, model_prefix, vocab_size ):
+    return ''.join(["--pad_id=3",' --input=', str(data_path)," --model_prefix=", model_prefix, " --vocab_size=",str(vocab_size)])
+# create input string and train sentencepiecemodel
+deu_spm_input = spm_args(deu_sentences_path, "spm_deu", vocab_size)
+nds_spm_input = spm_args(nds_sentences_path, "spm_nds", vocab_size)
+spm.SentencePieceTrainer.train(deu_spm_input)
+spm.SentencePieceTrainer.train(nds_spm_input)
 
-sp_deu = load_sp_model("preprocessed_data/sp_model/de.wiki.bpe.vs10000.model")
-sp_nds = load_sp_model("preprocessed_data/sp_model/nds.wiki.bpe.vs10000.model")
+#%%
+
+#sp_deu = load_sp_model("preprocessed_data/sp_model/de.wiki.bpe.vs10000.model")
+#sp_nds = load_sp_model("preprocessed_data/sp_model/nds.wiki.bpe.vs10000.model")
+sp_deu = load_sp_model("spm_deu.model")
+sp_nds = load_sp_model("spm_nds.model")
+
+sp_deu.set_encode_extra_options('bos:eos')
+pad_index = sp_deu.piece_to_id("<pad>")
+
 
 # %%
-
+sp_deu.pad_id()
 
 # %%
 
 sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
 list_a = ["Komplizierte Wörter sind Baustelle.", "Morgen soll es regnen und übermorgen scheint die Sonne"]
 print(list(sp_deu_tokens_generator(list_a)))
-sp_numericalize_generator = sentencepiece_numericalizer(sp_deu)
+sp_de_numericalize_generator = sentencepiece_numericalizer(sp_deu)
+sp_nds_numericalize_generator = sentencepiece_numericalizer(sp_nds)
+
 print(list(sp_numericalize_generator(list_a)))
 
-# %%
 
+# %%
 sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
 sp_nds_tokens_generator = sentencepiece_tokenizer(sp_nds)
+# %%
+print(list(sp_de_numericalize_generator(["Ich bin ein Text."]))[0])
 
+list(sp_deu_tokens_generator(["Ich bin ein Text."]))[0]
 
+# %%
 def tokenize_de(text):
-    return list(sp_deu_tokens_generator([text]))[0]
+    return list(sp_de_numericalize_generator([text]))[0]
 def tokenize_nds(text):
-    return list(sp_nds_tokens_generator([text]))[0]
+    return list(sp_nds_numericalize_generator([text]))[0]
 
 
 
@@ -169,17 +193,15 @@ def tokenize_nds(text):
 
 
 
-SRC = Field(tokenize = tokenize_de, 
-        init_token = '<sos>', 
-        eos_token = '<eos>', 
-        lower = False, 
-        batch_first = True)
+SRC = Field(use_vocab = False, tokenize = tokenize_de,
+            init_token = sp_deu.bos_id(), 
+            eos_token = sp_deu.eos_id(),
+            pad_token = sp_deu.pad_id())
 
-TRG = Field(tokenize = tokenize_nds, 
-        init_token = '<sos>', 
-        eos_token = '<eos>', 
-        lower = False, 
-        batch_first = True)
+TRG = Field(use_vocab = False, tokenize = tokenize_nds,
+            init_token = sp_nds.bos_id(), 
+            eos_token = sp_nds.eos_id(),
+            pad_token = sp_nds.pad_id())
 
 train_data = TabularDataset(path=train_path, format= "csv", skip_header = True
                         , fields = [('id', None),("src", SRC),("trg", TRG)])
@@ -190,8 +212,9 @@ test_data = TabularDataset(path= test_path, format= "csv", skip_header = True
 
 
 # %%
+[SRC.pad_token]
 
-
+# %% 
 BATCH_SIZE = 32
 
 
@@ -212,17 +235,15 @@ train_iterator, valid_iterator = BucketIterator.splits(
     sort_key = lambda x : len(x.src),
     device = device)
 
-SRC.build_vocab(train_data, min_freq = 1)
-TRG.build_vocab(train_data, min_freq = 1)
+#SRC.build_vocab(train_data, min_freq = 1)
+#TRG.build_vocab(train_data, min_freq = 1)
 
 torch.save(SRC, saving_path / "SRC.Field", pickle_module = dill)
 
 torch.save(TRG, saving_path / "TRG.Field", pickle_module = dill)
 
 # %%
-
-print(len(SRC.vocab))
-print(len(TRG.vocab))
+vars(test_data.examples[466])['src']
 
 # %%
 
@@ -603,9 +624,9 @@ class Seq2Seq(nn.Module):
  We can now define our encoder and decoders. This model is significantly smaller than Transformers used in research today, but is able to be run on a single GPU quickly.
 """
 
-def instantiate_objects(SRC,TRG):
-    INPUT_DIM = len(SRC.vocab)
-    OUTPUT_DIM = len(TRG.vocab)
+def instantiate_objects(SRC,TRG, vocab_size=vocab_size):
+    INPUT_DIM = vocab_size
+    OUTPUT_DIM = vocab_size
     # hidden_dim was 256 before
     HID_DIM = 256
     ENC_LAYERS = 3
@@ -671,7 +692,8 @@ def train(model, iterator, optimizer, criterion, clip):
         trg = batch.trg
         
         optimizer.zero_grad()
-        
+        print(trg[:,:-1])
+        print(trg[:])
         output, _ = model(src, trg[:,:-1])
                 
         #output = [batch size, trg len - 1, output dim]
@@ -821,12 +843,12 @@ total_samples = (len(train_iterator) + len(valid_iterator))*BATCH_SIZE
 
 print("All data read in")
 
-preload_model = True
+preload_model = False
 if preload_model == False:
     enc , dec = instantiate_objects(SRC,TRG)
 
-    SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
-    TRG_PAD_IDX = TRG.vocab.stoi[TRG.pad_token]
+    SRC_PAD_IDX = SRC.pad_token
+    TRG_PAD_IDX = TRG.pad_token
     print(TRG_PAD_IDX)
     model = Seq2Seq(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device).to(device)
     # random weigths
@@ -841,8 +863,8 @@ else:
     pre_TRG = torch.load(path_pretrained / "TRG.Field", pickle_module=dill)
     enc , dec = instantiate_objects(SRC,TRG)
 
-    SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
-    TRG_PAD_IDX = TRG.vocab.stoi[TRG.pad_token]
+    SRC_PAD_IDX = SRC.pad_token
+    TRG_PAD_IDX = TRG.pad_token
 
     model = Seq2Seq(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device).to(device)
     model.apply(initialize_weights)
