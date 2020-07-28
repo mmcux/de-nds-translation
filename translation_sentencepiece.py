@@ -94,9 +94,8 @@ else:
 additional_data = True
 if additional_data:
     train = pd.read_csv(train_path, index_col = 0)
-    mono = pd.read_csv("preprocessed_data/monolingual.csv", index_col = 0)
     wordbook = pd.read_csv("preprocessed_data/hansen/wordbook.csv", index_col = 0)
-    wordbook = wordbook [["deu", "nds"]]
+    wordbook = wordbook[["deu", "nds"]]
     print(wordbook.head(3))
     # right now only wordbook as GPU storage is too small for both
     train = train.append(wordbook).sample(frac=1).reset_index(drop=True)
@@ -109,12 +108,12 @@ if additional_data:
 # %%
 vocab_size = 10000
 
-train = pd.read_csv(train_path)
+train_sp = pd.read_csv(train_path)
 # create solo datasets for german and low german to prepare for training sentencepiece model
-deu_sentences = train.iloc[:,1]
+deu_sentences = train_sp.iloc[:,1]
 deu_sentences_path = saving_path /  "deu_train_sentences.csv"
 deu_sentences.to_csv(deu_sentences_path, index=False, header = False)
-nds_sentences = train.iloc[:,2]
+nds_sentences = train_sp.iloc[:,2]
 nds_sentences_path = saving_path /  "nds_train_sentences.csv"
 nds_sentences.to_csv(nds_sentences_path, index=False, header = False)
 
@@ -137,13 +136,24 @@ sp_nds = load_sp_model(str(saving_path / "spm_nds.model"))
 
 #%%
 # add monolingual data only here as it would else included into sentencepiece model
-mono_data = False
+mono_data = True
 if mono_data:
-    mono = mono.sample(20000, random_state=42)
+    mono = pd.read_csv("preprocessed_data/monolingual.csv", index_col = 0)
+    mono = mono[["deu", "nds"]]
+    mono = mono.sample(100000, random_state=42)
+    mono_enc = mono.deu.apply(sp_deu.encode)
+    mono_len = mono_enc.apply(len)
+    mono_drop = mono_len[mono_len >= 60].index
+    print("Drops from mono due to length: ", len(mono_drop))
+    mono.drop(mono_drop, inplace = True)
+    print(mono.head(4))
     train = train.append(mono).sample(frac=1).reset_index(drop=True)
     print(train.head(5))
+
     train.to_csv(saving_path / "train_data.csv")
     train_path = saving_path / "train_data.csv"    
+# %%
+
 
 
 # %%
@@ -758,10 +768,8 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
 
     if tokens[0] != src_field.init_token and tokens[-1] != src_field.eos_token:
         tokens = [src_field.init_token] + tokens + [src_field.eos_token]
-        print("bos and eos added to input")
-        
-#    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
-    print(tokens)
+
+
     src_indexes = tokens
     src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
     
@@ -787,7 +795,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
 
         if pred_token == trg_field.eos_token:
             break
-    print(trg_indexes)
+
     trg_tokens = sp_nds.decode(trg_indexes)
     
     return trg_tokens, attention
@@ -945,7 +953,7 @@ def display_attention(sentence, translation, attention, n_heads = 8, n_rows = 4,
 # # %% [markdown]
 # # Finally, we'll look at an example from the test data.
 # %%
-example_idx = 29
+example_idx = 31
 
 src = vars(test_data.examples[example_idx])['src']
 trg = vars(test_data.examples[example_idx])['trg']
