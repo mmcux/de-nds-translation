@@ -16,18 +16,19 @@ import torch.optim as optim
 
 import torchtext
 from torchtext.data import Field, BucketIterator,  TabularDataset
+from torchtext.data.functional import generate_sp_model, load_sp_model, sentencepiece_numericalizer, sentencepiece_tokenizer
 from nltk.translate import bleu_score
 
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
-import spacy
 import numpy as np
 import pandas as pd
+import dill
 from sklearn.model_selection import train_test_split
 
-
+from pathlib import Path
 import os
 import random
 import re
@@ -57,23 +58,28 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 # %%
-spacy_de = spacy.load('de')
+sp_deu = load_sp_model("preprocessed_data/sp_model/de.wiki.bpe.vs10000.model")
+sp_nds = load_sp_model("preprocessed_data/sp_model/nds.wiki.bpe.vs10000.model")
+
+
+# %%
+
+sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
+list_a = ["Komplizierte Wörter sind Baustelle.", "Morgen soll es regnen und übermorgen scheint die Sonne"]
+print(list(sp_deu_tokens_generator(list_a)))
+sp_numericalize_generator = sentencepiece_numericalizer(sp_deu)
+print(list(sp_numericalize_generator(list_a)))
+
+# %%
+
+sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
+sp_nds_tokens_generator = sentencepiece_tokenizer(sp_nds)
+
 
 def tokenize_de(text):
-    """
-    Tokenizes German text from a string into a list of strings (tokens)
-    """
-    return [tok.text for tok in spacy_de.tokenizer(text)]
-
-# Low German sometimes has apostrophs ' in between words but they are abbreviations and count as one
+    return list(sp_deu_tokens_generator([text]))[0]
 def tokenize_nds(text):
-    """
-    Tokenizes Low German text from a string into a list of strings (tokens)
-    """
-    text = re.sub(r"([.,\"\-;*:\(\)%?!&#])", r" \1", text)
-    text = re.split(r"[\s]", text)
-    text = [a for a in text if len(a)>0]
-    return text
+    return list(sp_nds_tokens_generator([text]))[0]
 
 # %% [markdown]
 #  In each round we have new training and validation data. We need a function which creates for each round new fields and bucket iterators. With the fields we create in each round a new vocabulary.
@@ -82,18 +88,18 @@ def tokenize_nds(text):
 # %%
 # loading in the data into torchtext datasets
 def load_train_test_data(path):
-    train_path = path + "train_data.csv"
-    valid_path = path + "valid_data.csv"
+    train_path = path / "train_data.csv"
+    valid_path = path / "valid_data.csv"
     SRC = Field(tokenize = tokenize_de, 
             init_token = '<sos>', 
             eos_token = '<eos>', 
-            lower = True, 
+            lower = False, 
             batch_first = True)
 
     TRG = Field(tokenize = tokenize_nds, 
             init_token = '<sos>', 
             eos_token = '<eos>', 
-            lower = True, 
+            lower = False, 
             batch_first = True)
 
     train_data = TabularDataset(path=train_path, format= "csv", skip_header = True
@@ -666,10 +672,9 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
     model.eval()
         
     if isinstance(sentence, str):
-        nlp = spacy.load('de')
-        tokens = [token.text.lower() for token in nlp(sentence)]
+        tokens = tokenize_de(sentence)
     else:
-        tokens = [token.lower() for token in sentence]
+        tokens = [token for token in sentence]
 
 
     tokens = [src_field.init_token] + tokens + [src_field.eos_token]
@@ -721,8 +726,8 @@ def save_train_test_split(df, path):
         print("Directory " , path ,  " already exists") 
     train_data, valid_data = train_test_split(df, test_size=0.1, random_state=SEED)
 
-    train_data.to_csv(path_or_buf= path + "train_data.csv")
-    valid_data.to_csv(path_or_buf= path + "valid_data.csv")
+    train_data.to_csv(path_or_buf= path / "train_data.csv")
+    valid_data.to_csv(path_or_buf= path / "valid_data.csv")
 
     print("Numbers of training samples: " , len(train_data))
     print("Number of validation samples: ",len(valid_data))
@@ -732,8 +737,8 @@ def save_train_test_split(df, path):
 # read train-test-split
 
 def read_train_test_split(path):
-    train_df = pd.read_csv(path + "train_data.csv", index_col=0)
-    valid_df = pd.read_csv(path + "valid_data.csv", index_col=0)
+    train_df = pd.read_csv(path / "train_data.csv", index_col=0)
+    valid_df = pd.read_csv(path / "valid_data.csv", index_col=0)
     dataset = train_df.append(valid_df)
     return dataset
 
@@ -743,7 +748,7 @@ def read_train_test_split(path):
 # creating and saving the residuals
 
 def save_residual_data(df, path):
-    df.to_csv(path + "residuals.tsv", sep="\t")
+    df.to_csv(path / "residuals.tsv", sep="\t")
 
 # %% [markdown]
 
@@ -800,7 +805,8 @@ wiki_df = pd.read_csv("preprocessed_data/fb-wiki/wiki_dataset_cleaned_spelling.c
 #%%
 # loading seperate test set and delete it from dataset
 timestr = time.strftime("%Y%m%d-%H%M%S")
-path = "data_selection/" + timestr + "self_learning_preprocessed/"
+base_path = Path("data_selection/")
+path = base_path / timestr 
 
         # Create target Directory
 try:       
@@ -825,7 +831,7 @@ print("Dropping test entries from Wikipedia: ", len(delete_from_wiki))
 tatoeba_df.drop(delete_from_tatoeba, inplace=True)
 wiki_df.drop(delete_from_wiki, inplace=True)
 
-test_path = path + "test_data.csv"
+test_path = path / "test_data.csv"
 test_df.to_csv(test_path)
 
 #%%
@@ -847,10 +853,10 @@ print(wiki_df[wiki_df.nds.str.contains(test_string)])
 
 runs = 14
 
-path_round = path + "round_"
+path_round = path / "round_"
 
 # the first round is completed with the tatoeba dataset
-save_train_test_split(tatoeba_df, path_round + str(0) + "/")
+save_train_test_split(tatoeba_df, path_round / str(0) )
 
 
 
@@ -866,7 +872,7 @@ round_stats = pd.DataFrame(columns = ["best_valid_loss", "epoch_mins", "epoch_se
 
 # define error quantile until which the data should be kept for the next round 
 #quantile = 0.25
-include_bleu = True
+include_bleu = False
 
 residual_loss_before = float("Inf")
 
@@ -879,9 +885,11 @@ for i in range(runs):
 
     print("===================================================")
     print("Round: ", i)
-    path_iter = path_round + str(i) + "/"
+    path_iter = path_round / str(i) 
     # load the iterators which contains already the batches
     SRC, TRG, train_iterator, valid_iterator = load_train_test_data(path_iter)
+    torch.save(SRC, path_iter / "SRC.Field", pickle_module = dill)
+    torch.save(TRG, path_iter / "TRG.Field", pickle_module = dill)
     # count how many samples we have int total
     total_samples = (len(train_iterator) + len(valid_iterator))*64
     test_data = TabularDataset(path=test_path, format= "csv", skip_header = True
@@ -894,14 +902,39 @@ for i in range(runs):
         sort_key = lambda x : len(x.src),
         device = device)
 
-    enc , dec = instantiate_objects(SRC,TRG)
+    preload_model = True
+    if preload_model == False:
+        enc , dec = instantiate_objects(SRC,TRG)
 
-    SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
-    TRG_PAD_IDX = TRG.vocab.stoi[TRG.pad_token]
+        SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
+        TRG_PAD_IDX = TRG.vocab.stoi[TRG.pad_token]
+        print(TRG_PAD_IDX)
+        model = Seq2Seq(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device).to(device)
+        # random weigths
+        model.apply(initialize_weights)
+    else:
+        path_pretrained = Path("model/pre_training/20200623-132115_CAPITAL_MINFREQ2_BATCH32_SAMETOKENIZER_NLD_PRETRAINING_DE_EN/")
+        path_pretrained = Path("model/pre_training/20200707-090432_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_DE_EN/")
+        #path_pretrained = "model/sentencepiece/20200707-111219_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_EN_SENTENCEPIECE_10k_DE_NDS/"
+        #path_pretrained = "model/pre_training/20200708-124955_CAPITAL_MINFREQ1_BATCH32_SAMETOKENIZER_NL_10k_SENTENCEPIECE_10k_DE_NL/"
 
-    model = Seq2Seq(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device).to(device)
+        pre_SRC = torch.load(path_pretrained / "SRC.Field", pickle_module=dill)
+        pre_TRG = torch.load(path_pretrained / "TRG.Field", pickle_module=dill)
+        enc , dec = instantiate_objects(SRC,TRG)
 
-    model.apply(initialize_weights)
+        SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
+        TRG_PAD_IDX = TRG.vocab.stoi[TRG.pad_token]
+
+        model = Seq2Seq(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device).to(device)
+        model.apply(initialize_weights)
+        model_dict = model.state_dict()
+        # loaded weights from pretrained model
+        pretrain_dict = torch.load(path_pretrained / 'model.pt')
+        #Filter out unnecessary keys
+        pretrain_dict = {k: v for k, v in pretrain_dict.items() if (k in model_dict and 'fc_out' not in k and 'tok_embedding' not in k)}
+        model.load_state_dict(pretrain_dict, strict=False)
+        #model.load_state_dict(torch.load(path_pretrained + 'model.pt', map_location=torch.device(device)),strict=False)
+        print("Loaded pretrained model")
 
     LEARNING_RATE = 0.0005
     CLIP = 1
@@ -931,7 +964,7 @@ for i in range(runs):
         
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
-            torch.save(model.state_dict(), path_iter + 'model.pt')
+            torch.save(model.state_dict(), path_iter / 'model.pt')
         
         print(f'Epoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s')
         print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
@@ -939,7 +972,7 @@ for i in range(runs):
 
 
 
-    model.load_state_dict(torch.load(path_iter + 'model.pt'))
+    model.load_state_dict(torch.load(path_iter / 'model.pt'))
 
     test_loss = evaluate(model, test_iterator, criterion)
 
@@ -954,15 +987,15 @@ for i in range(runs):
     
     start_index = wiki_df.index[0]
     # if the calculated size exceeds the wiki_df, we take the full remaining dataframe
-    if wiki_df.index[-1] - len(tatoeba_df) > residual_size:
+    if len(wiki_df) > residual_size:
       end_index = wiki_df.index[residual_size]
     else:
       end_index = wiki_df.index[-1]
     residual_df = wiki_df.loc[start_index:end_index,:].copy()
-    residual_df.to_csv(path_iter + "residuals.tsv", sep="\t")
+    residual_df.to_csv(path_iter / "residuals.tsv", sep="\t")
 
     # calculating the error for the data which was not included in the model & testing
-    residual_pairs = TabularDataset(path=path_iter + "residuals.tsv", format= "tsv", skip_header = True
+    residual_pairs = TabularDataset(path=path_iter / "residuals.tsv", format= "tsv", skip_header = True
                                 , fields = [('id', None),("src", SRC),("trg", TRG)])
     debug_text_residual_src = vars(residual_pairs.examples[8])['src']
     debug_text_residual_trg = vars(residual_pairs.examples[8])['trg']
@@ -988,7 +1021,7 @@ for i in range(runs):
     #storing the loss in the loss summary at the right sentence index
 
     loss_summary.iloc[:, i] = residual_df.loss
-    loss_summary.to_csv(path + "loss_summary.csv")
+    loss_summary.to_csv(path / "loss_summary.csv")
 
     # calcualting the 25% quantile
     quantile = residual_df.loss.quantile(0.25)
@@ -999,14 +1032,14 @@ for i in range(runs):
     old_train_data = read_train_test_split(path_iter)
     dataset = old_train_data.append(new_train_data)
 
-    new_path = path_round + str(i + 1) + "/"
+    new_path = path_round / str(i + 1) 
 
     # shuffling for the next round is important, so the new dataset is integrated through the whole training process
     # it is done inside the below function before saving it
     save_train_test_split(dataset, new_path)
 
     # save the new train-data for easy quality check
-    new_train_data.to_csv(new_path + "new_training_data.csv")
+    new_train_data.to_csv(new_path / "new_training_data.csv")
 
     # drop the new included train sentences from the wiki_df
     # so they are excluded for next rounds
@@ -1026,7 +1059,7 @@ for i in range(runs):
     # saving stats
     round_stats.loc[i, :] = [best_valid_loss, epoch_mins, epoch_secs, test_loss,residual_loss,
                     residual_mins,residual_secs,quantile, test_bleu, total_samples]
-    round_stats.to_csv(path + "round_stats.csv")
+    round_stats.to_csv(path / "round_stats.csv")
 
 
 
