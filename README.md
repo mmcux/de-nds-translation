@@ -88,17 +88,8 @@ To Do's for the future
 
 ## Algorithm
 
-* Better tokenizer for nds
-* Training with capitalized words
-* monolingual training -> translation into german with wiki-tatoeba model -> backtranslation into low german
 * Try model with more layers
-* Use other pre-trained model: e.g. [OpenNMT](https://opennmt.net/Models-py/)
-* Combine the output of multiple models (if possible)
-  * Evaluation-Model: Trained model only on monolingual data to evaluate which predicted sentence is best
-* k-fold cross-validation
-* Hyperparameter tuning
-  * Learning Rate
-  * Dropout
+* Use other pre-trained model: e.g. [OpenNMT](https://opennmt.net/Models-py/) and [XLM](https://github.com/facebookresearch/XLM)
 * better word correction / automatic input correction
 
 ## Dataset
@@ -107,9 +98,8 @@ To Do's for the future
 
 ## App
 
-* user interface and logo
-* create possibility for translating already existing sentences by community (more possible translations)
-* mobile friendly
+* user interface
+* better feedback function with login
 
 # Licenses
 
@@ -131,8 +121,9 @@ Special thanks for consulting and general support to:
 * 02.06.2020: Community feedback and correction function
 * 07.06.2020: Better infrastructure for web application
 * 07.06.2020: Prediction-Model 0.3 Release: additional monolingual training
-* 10.07.2020: Autocorrection of High-German sentence before translating
+* 10.07.2020: Autocorrection of High-German sentence before translation
 * 10.07.2020: Prediction-Model 0.5 Release: Sentencepiece tokenizer & Transfer learning with German-English pretrained model
+* 28.07.2020: Prediction-Model 0.6 Release: Sentencepiece tokenizer, transfer learning, monolingual training and better translations for single words
 
 
 

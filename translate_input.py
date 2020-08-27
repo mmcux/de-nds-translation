@@ -19,7 +19,7 @@ import re
 # %%
 # path where the model and training data (for vocabulary) is saved
 # name of the model: "model.pt"
-path = Path("model/sentencepiece/20200727-224225/english_pretraining_with_sp/")
+path = Path("model/sentencepiece/20200728-152255/english_pretraining_with_sp/")
 
 INPUT = "Das Wetter ist sehr schön."
 
@@ -32,23 +32,24 @@ INPUT = "Das Wetter ist sehr schön."
 sp_deu = load_sp_model(str(path / "spm_deu.model"))
 sp_nds = load_sp_model(str(path / "spm_nds.model"))
 
-sp_deu_tokens_generator = sentencepiece_tokenizer(sp_deu)
-sp_nds_tokens_generator = sentencepiece_tokenizer(sp_nds)
-
-def tokenize_de(text):
-    return list(sp_deu_tokens_generator([text]))[0]
-def tokenize_nds(text):
-    return list(sp_nds_tokens_generator([text]))[0]
-
 
 
 
 #%%
 
-SRC = torch.load(str(path / "SRC.Field"), pickle_module=dill)
+SRC = Field(use_vocab = False, tokenize = sp_deu.encode,
+            init_token = sp_deu.bos_id(), 
+            eos_token = sp_deu.eos_id(),
+            pad_token = sp_deu.pad_id(),
+            batch_first = True
+            )
 
-TRG = torch.load(str(path / "TRG.Field"),pickle_module=dill)
-
+TRG = Field(use_vocab = False, tokenize = sp_nds.encode,
+            init_token = sp_nds.bos_id(), 
+            eos_token = sp_nds.eos_id(),
+            pad_token = sp_nds.pad_id(),
+            batch_first = True
+            )
 print(SRC)
 # %%
 
@@ -292,7 +293,7 @@ class Decoder(nn.Module):
         #pos = [batch size, trg len]
             
         trg = self.dropout((self.tok_embedding(trg) * self.scale) + self.pos_embedding(pos))
-                
+      
         #trg = [batch size, trg len, hid dim]
         
         for layer in self.layers:
@@ -302,7 +303,7 @@ class Decoder(nn.Module):
         #attention = [batch size, n heads, trg len, src len]
         
         output = self.fc_out(trg)
-        
+
         #output = [batch size, trg len, output dim]
             
         return output, attention
@@ -426,9 +427,9 @@ class Seq2Seq(nn.Module):
         enc_src = self.encoder(src, src_mask)
         
         #enc_src = [batch size, src len, hid dim]
-                
+     
         output, attention = self.decoder(trg, enc_src, trg_mask, src_mask)
-        
+
         #output = [batch size, trg len, output dim]
         #attention = [batch size, n heads, trg len, src len]
         
@@ -520,14 +521,16 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
         
     if isinstance(sentence, str):
         tokens = sp_deu.encode(sentence)
+
     else:
         tokens = [token for token in sentence]
 
-    print(tokens)
-    tokens = [src_field.init_token] + tokens + [src_field.eos_token]
-        
-#    src_indexes = [src_field.vocab.stoi[token] for token in tokens]
+    if tokens[0] != src_field.init_token and tokens[-1] != src_field.eos_token:
+        tokens = [src_field.init_token] + tokens + [src_field.eos_token]
+
+
     src_indexes = tokens
+
     src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
     
     src_mask = model.make_src_mask(src_tensor)
@@ -552,7 +555,7 @@ def translate_sentence(sentence, src_field, trg_field, model, device, max_len = 
 
         if pred_token == trg_field.eos_token:
             break
-    print(trg_indexes)
+
 
     trg_tokens = sp_nds.decode(trg_indexes)
     
@@ -613,18 +616,21 @@ ai_comparison = False
 if ai_comparison:
     ai_translation = untranslated[["deu"]].sample(50, random_state=42)
     ai_translation["ai_nds"] = untranslated["deu"].sample(50, random_state=42).apply(translate_to_platt)
-    ai_translation.to_csv("preprocessed_data/tatoeba/ai_translations_model_pre_training_en.csv")
+    ai_translation.to_csv("preprocessed_data/tatoeba/ai_translations_model_pre_training_en_sentencepiece.csv")
 
 # %%
 
 
 # %%
 
-sentence = "Ich habe während der Mittagspause ein wenig geschlafen, weil ich so müde war."
-sentence = "Nachdem wir die Erdbeeren gesammelt haben, backen wir einen leckeren Kuchen."
-sentence = "Das Wetter wird übermorgen sehr schön."
-sentence = "schlafen"
-translate_to_platt(sentence)
+#sentence = "Ich habe während der Mittagspause ein wenig geschlafen, weil ich so müde war."
+sentence = "Nachdem wir die Erdbeeren gepflückt haben, backen wir einen leckeren Kuchen."
+#sentence = "Das Wetter wird übermorgen sehr schön."
+sentence = "Mein Handy muss aufgeladen werden."
+translate_to_platt(sp_deu.encode(sentence))
+
+
+
 
 # %%
 if __name__ == "__main__":
