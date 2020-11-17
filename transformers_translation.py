@@ -56,9 +56,9 @@ class FTModel:
         After that transforming to pytorch dataset.
         Monolingual data of the low-resource-language already split into two columns.
         '''
-        sentence_pairs = pd.read_csv(sentence_pairs_path, index_col = 0).sample(100)
+        sentence_pairs = pd.read_csv(sentence_pairs_path, index_col = 0)
         sentence_pairs.rename(columns={"deu": "src","nds":"trg"}, inplace=True)
-        mono = pd.read_csv(monolingual_data_path, index_col = 0).sample(100)
+        mono = pd.read_csv(monolingual_data_path, index_col = 0).sample(5000,random_state=42)
         mono.rename(columns={"deu": "src","nds":"trg"}, inplace=True)
         mono.iloc[:,0] = prefix_deu + " " + mono.iloc[:,0]
         #creating reverse training data
@@ -67,7 +67,6 @@ class FTModel:
         sentence_pairs["src"] = prefix_deu + " " + sentence_pairs["src"]
         sentence_pairs_reverse["src"] = prefix_nds + " " + sentence_pairs["src"]
         all_data = sentence_pairs.append(sentence_pairs_reverse , ignore_index=True).append(mono , ignore_index=True)
-        print(all_data.tail())
         train, valid = train_test_split(all_data, test_size=0.1, random_state = 42)
         train_dataset = self.tokenizer.prepare_seq2seq_batch(train["src"].tolist(), train["trg"].tolist(), return_tensors="pt")
         valid_dataset = self.tokenizer.prepare_seq2seq_batch(valid["src"].tolist(), valid["trg"].tolist(), return_tensors="pt")
@@ -170,9 +169,9 @@ class FTModel:
     def translate(self, text, trg_lang):
         input_ids = self.tokenizer(f"{trg_lang} {text}", return_tensors="pt").input_ids
 
-        output_ids = self.model.generate(input_ids.to(device))
+        output_ids = self.model.generate(input_ids.to(FTModel.device))
 
-        return  tokenizer.decode(output_ids[0],skip_special_tokens=True)
+        return  self.tokenizer.decode(output_ids[0],skip_special_tokens=True)
 
 #%%
 
@@ -181,7 +180,9 @@ test = FTModel('Helsinki-NLP/opus-mt-NORTH_EU-NORTH_EU', 'Helsinki-NLP/opus-mt-N
 
 sentence_pairs_path = Path("preprocessed_data/tatoeba/tatoeba_dataset_cleaned_spelling.csv")
 monolingual_data_path = Path("preprocessed_data/monolingual.csv")
-test.load_data(sentence_pairs_path = sentence_pairs_path, monolingual_data_path=monolingual_data_path, prefix_deu=">>nl<<", prefix_nds=">>de<<")
+test.load_data(sentence_pairs_path = sentence_pairs_path, 
+            monolingual_data_path=monolingual_data_path, prefix_deu=">>nl<<", prefix_nds=">>de<<"
+            , batch_size=4)
 #%%
 storage_path = Path("model/transformers/classtest/")
 test.train(storage_path)
@@ -190,9 +191,11 @@ test.train(storage_path)
 
 
 test_path = Path("preprocessed_data/preprocessed_test_data.csv")
-test.test(test_path,">>nl<<",">>de<<")
+test_loss = test.test(test_path,">>nl<<",">>de<<")
+test_loss
+#%%
 
-
+test.translate("Mit 17 wurde Walter Ansorge von der Mafia entführt. Heute ist der Deutsche einer der erfolgreichsten Unternehmer Siziliens. Und lässt sich nicht mehr einschüchtern.", ">>nl<<")
 
 
 #%%
