@@ -21,7 +21,7 @@ https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-2.2.
 https://download.pytorch.org/whl/cpu/torch-1.5.0%2Bcpu-cp37-cp37m-linux_x86_64.whl
 torchtext==0.6.0
 tqdm==4.46.0
-urllib3==1.25.8
+urllib3==1.26.5
 Werkzeug==1.0.1
 win-inet-pton==1.1.0
 wincertstore==0.2
